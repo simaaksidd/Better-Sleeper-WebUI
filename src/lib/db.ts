@@ -57,6 +57,8 @@ function initSchema(db: Database.Database) {
       years_exp INTEGER DEFAULT 0,
       injury_status TEXT,
       status TEXT,
+      espn_id INTEGER,
+      number INTEGER,
       updated_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
 
@@ -153,4 +155,16 @@ function initSchema(db: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_player_stats_season ON player_stats(season, week);
   `);
+
+  // Migrations for existing databases
+  const cols = db
+    .prepare("PRAGMA table_info(players)")
+    .all() as Array<{ name: string }>;
+  const colNames = new Set(cols.map((c) => c.name));
+  if (!colNames.has("espn_id")) {
+    db.exec("ALTER TABLE players ADD COLUMN espn_id INTEGER");
+  }
+  if (!colNames.has("number")) {
+    db.exec("ALTER TABLE players ADD COLUMN number INTEGER");
+  }
 }

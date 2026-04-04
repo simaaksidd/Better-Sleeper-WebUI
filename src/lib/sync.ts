@@ -116,11 +116,12 @@ export async function runFullSync() {
     // 5. Players (large ~5MB)
     const allPlayers = await fetchAllPlayers();
     const upsertPlayer = db.prepare(
-      `INSERT OR REPLACE INTO players (player_id, first_name, last_name, full_name, position, team, age, height, weight, college, years_exp, injury_status, status, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
+      `INSERT OR REPLACE INTO players (player_id, first_name, last_name, full_name, position, team, age, height, weight, college, years_exp, injury_status, status, espn_id, number, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
     );
     const insertPlayers = db.transaction(() => {
       for (const [id, p] of Object.entries(allPlayers)) {
+        const raw = p as Record<string, unknown>;
         upsertPlayer.run(
           id,
           p.first_name,
@@ -134,7 +135,9 @@ export async function runFullSync() {
           p.college,
           p.years_exp ?? 0,
           p.injury_status,
-          p.status
+          p.status,
+          (raw.espn_id as number) ?? null,
+          (raw.number as number) ?? null
         );
       }
     });
