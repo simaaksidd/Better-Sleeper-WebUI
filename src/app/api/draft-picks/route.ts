@@ -12,18 +12,25 @@ interface DraftPick {
   original_owner_name: string;
 }
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(request.url);
-    const leagueId = searchParams.get("leagueId");
-    if (!leagueId) {
-      return NextResponse.json(
-        { error: "Missing leagueId" },
-        { status: 400 }
-      );
+    const db = getDb();
+
+    // Use the league ID from the database (the one that was actually synced)
+    const leagueRow = db
+      .prepare("SELECT league_id FROM league LIMIT 1")
+      .get() as { league_id: string } | undefined;
+
+    if (!leagueRow?.league_id) {
+      return NextResponse.json({
+        picks_by_owner: {},
+        seasons: [],
+        draft_rounds: 4,
+        total_teams: 0,
+      });
     }
 
-    const db = getDb();
+    const leagueId = leagueRow.league_id;
 
     // Get all drafts — look for rookie drafts with draft_order per season
     const drafts = await fetchDrafts(leagueId);
