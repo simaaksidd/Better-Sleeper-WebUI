@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useCallback } from "react";
 import type { StatRow } from "@/hooks/usePlayerStats";
 
 interface GameLogTableProps {
@@ -30,6 +31,18 @@ function getColumns(position: string): Column[] {
       key: "fpts",
       label: "FPTS",
       getValue: (s) => s.fantasy_points_ppr?.toFixed(1) ?? "0.0",
+      group: "Fantasy",
+    },
+    {
+      key: "pos_rank",
+      label: "POS",
+      getValue: (s) => s.pos_rank ?? "-",
+      group: "Fantasy",
+    },
+    {
+      key: "ovr_rank",
+      label: "OVR",
+      getValue: (s) => s.ovr_rank ?? "-",
       group: "Fantasy",
     },
   ];
@@ -282,8 +295,8 @@ function computeTotals(stats: StatRow[], columns: Column[]): Record<string, stri
   for (const col of columns) {
     if (col.key === "wk") {
       totals[col.key] = "TOT";
-    } else if (col.key === "opp") {
-      totals[col.key] = "";
+    } else if (col.key === "opp" || col.key === "pos_rank" || col.key === "ovr_rank") {
+      totals[col.key] = "-";
     } else if (col.key === "rush_ypc") {
       const totalCarries = stats.reduce((a, s) => a + (s.carries || 0), 0);
       const totalYards = stats.reduce((a, s) => a + (s.rushing_yards || 0), 0);
@@ -317,6 +330,33 @@ const ALL_WEEKS = Array.from({ length: 22 }, (_, i) => i + 1);
 export default function GameLogTable({ stats, position }: GameLogTableProps) {
   const columns = getColumns(position);
   const totals = computeTotals(stats, columns);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Convert vertical scroll to horizontal when at vertical bounds or holding shift
+  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const hasHorizontalOverflow = el.scrollWidth > el.clientWidth;
+    if (!hasHorizontalOverflow) return;
+
+    if (e.shiftKey) {
+      // Shift+scroll → horizontal
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+      return;
+    }
+
+    // At vertical top/bottom bounds, convert to horizontal scroll
+    const atTop = el.scrollTop <= 0 && e.deltaY < 0;
+    const atBottom =
+      el.scrollTop + el.clientHeight >= el.scrollHeight - 1 && e.deltaY > 0;
+
+    if (atTop || atBottom) {
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    }
+  }, []);
 
   // Index stats by week for O(1) lookup
   const statsByWeek = new Map<number, StatRow>();
@@ -337,8 +377,11 @@ export default function GameLogTable({ stats, position }: GameLogTableProps) {
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+    <div
+      ref={scrollRef}
+      onWheel={handleWheel}
+      className="overflow-auto overscroll-contain flex-1 min-h-0 min-w-0">
+      <table className="w-full min-w-max text-sm">
         <thead>
           <tr>
             {groups.map((g, i) => (

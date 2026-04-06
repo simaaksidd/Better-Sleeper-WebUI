@@ -33,6 +33,7 @@ export async function GET(
       .all(mapping.gsis_id, season) as Array<Record<string, unknown>>;
 
     if (stats.length > 0) {
+      attachRanks(db, stats, mapping.gsis_id, sleeperId, season);
       return NextResponse.json({ source: "nflverse", stats });
     }
   }
@@ -47,6 +48,7 @@ export async function GET(
     .all(sleeperId, season) as Array<Record<string, unknown>>;
 
   if (directStats.length > 0) {
+    attachRanks(db, directStats, sleeperId, sleeperId, season);
     return NextResponse.json({ source: "sleeper", stats: directStats });
   }
 
@@ -132,13 +134,85 @@ export async function GET(
     });
     cacheBatch();
 
-    return NextResponse.json({
-      source: "sleeper_fallback",
-      stats: sleeperStats.filter(
-        (s) => (s.fantasy_points as number) > 0 || (s.fantasy_points_ppr as number) > 0
-      ),
-    });
+    const filtered = sleeperStats.filter(
+      (s) => (s.fantasy_points as number) > 0 || (s.fantasy_points_ppr as number) > 0
+    );
+    attachRanks(db, filtered, sleeperId, sleeperId, season);
+    return NextResponse.json({ source: "sleeper_fallback", stats: filtered });
   }
 
   return NextResponse.json({ source: "empty", stats: [] });
+}
+
+/**
+ * Compute weekly overall rank and position rank, then attach to each stat row.
+ * Uses SQL window functions over all player_stats for the season.
+ */
+function attachRanks(
+  db: ReturnType<typeof getDb>,
+  stats: Array<Record<string, unknown>>,
+  statsPlayerId: string,
+  sleeperId: string,
+  season: number
+) {
+  // Look up position
+  const playerRow = db
+    .prepare("SELECT position FROM players WHERE player_id = ?")
+    .get(sleeperId) as { position: string } | undefined;
+  const position = playerRow?.position;
+
+  // Overall rank per week
+  const ovrRows = db
+    .prepare(
+      `WITH ranked AS (
+        SELECT player_id, week, season_type,
+          RANK() OVER (PARTITION BY week, season_type ORDER BY fantasy_points_ppr DESC) as ovr_rank
+        FROM player_stats
+        WHERE season = ? AND fantasy_points_ppr > 0 AND season_type IN ('REG', 'POST')
+      )
+      SELECT week, season_type, ovr_rank FROM ranked WHERE player_id = ?`
+    )
+    .all(season, statsPlayerId) as Array<{ week: number; season_type: string; ovr_rank: number }>;
+
+  const ovrMap = new Map<string, number>();
+  for (const r of ovrRows) {
+    ovrMap.set(`${r.week}-${r.season_type}`, r.ovr_rank);
+  }
+
+  // Position rank per week
+  const posMap = new Map<string, number>();
+  if (position) {
+    const posRows = db
+      .prepare(
+        `WITH pos_ids AS (
+          SELECT gsis_id AS pid FROM player_id_map WHERE position = ?
+          UNION
+          SELECT sleeper_id AS pid FROM player_id_map WHERE position = ? AND sleeper_id IS NOT NULL
+        ),
+        ranked AS (
+          SELECT ps.player_id, ps.week, ps.season_type,
+            RANK() OVER (PARTITION BY ps.week, ps.season_type ORDER BY ps.fantasy_points_ppr DESC) as pos_rank
+          FROM player_stats ps
+          WHERE ps.season = ? AND ps.fantasy_points_ppr > 0 AND ps.season_type IN ('REG', 'POST')
+            AND ps.player_id IN (SELECT pid FROM pos_ids)
+        )
+        SELECT week, season_type, pos_rank FROM ranked WHERE player_id = ?`
+      )
+      .all(position, position, season, statsPlayerId) as Array<{
+        week: number;
+        season_type: string;
+        pos_rank: number;
+      }>;
+
+    for (const r of posRows) {
+      posMap.set(`${r.week}-${r.season_type}`, r.pos_rank);
+    }
+  }
+
+  // Merge into stat rows
+  for (const s of stats) {
+    const key = `${s.week}-${s.season_type}`;
+    s.pos_rank = posMap.get(key) ?? null;
+    s.ovr_rank = ovrMap.get(key) ?? null;
+  }
 }

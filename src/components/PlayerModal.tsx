@@ -162,7 +162,7 @@ export default function PlayerModal({ player, onClose }: PlayerModalProps) {
         {/* ── Body: two-column layout ── */}
         <div className="flex flex-1 min-h-0">
           {/* Left: Game Log (65%) */}
-          <div className="flex-[65] border-r border-border overflow-y-auto p-6">
+          <div className="flex-[65] min-w-0 border-r border-border overflow-hidden p-6 flex flex-col">
             <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">
               Game Logs
             </h3>
@@ -177,18 +177,20 @@ export default function PlayerModal({ player, onClose }: PlayerModalProps) {
               </div>
             )}
 
-            {loading ? (
-              <div className="space-y-2">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="h-8 bg-bg-card rounded animate-pulse"
-                  />
-                ))}
-              </div>
-            ) : (
-              <GameLogTable stats={stats} position={player.position} />
-            )}
+            <div className="flex-1 min-h-0 min-w-0 flex flex-col">
+              {loading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="h-8 bg-bg-card rounded animate-pulse"
+                    />
+                  ))}
+                </div>
+              ) : (
+                <GameLogTable stats={stats} position={player.position} />
+              )}
+            </div>
           </div>
 
           {/* Right: Sidebar (35%) */}

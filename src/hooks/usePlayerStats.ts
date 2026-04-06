@@ -31,6 +31,8 @@ export interface StatRow {
   fg_att: number;
   pat_made: number;
   pat_att: number;
+  pos_rank: number | null;
+  ovr_rank: number | null;
 }
 
 export function usePlayerStats(playerId: string | null, season: number) {
