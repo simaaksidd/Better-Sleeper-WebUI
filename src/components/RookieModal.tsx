@@ -94,6 +94,7 @@ interface NewsItem {
   description: string;
   published: string;
   url: string | null;
+  source?: string;
 }
 
 export default function RookieModal({
@@ -106,6 +107,7 @@ export default function RookieModal({
   const [loading, setLoading] = useState(true);
   const [imgError, setImgError] = useState(false);
   const [news, setNews] = useState<NewsItem[]>([]);
+  const [newsSources, setNewsSources] = useState<string[]>([]);
   const [newsLoading, setNewsLoading] = useState(true);
 
   // Game log state
@@ -133,9 +135,15 @@ export default function RookieModal({
   // Fetch college news
   useEffect(() => {
     fetch(`/api/rookies/${playerId}/news`)
-      .then((r) => (r.ok ? r.json() : { news: [] }))
-      .then((d) => setNews(d.news || []))
-      .catch(() => setNews([]))
+      .then((r) => (r.ok ? r.json() : { news: [], sources: [] }))
+      .then((d) => {
+        setNews(d.news || []);
+        setNewsSources(d.sources || []);
+      })
+      .catch(() => {
+        setNews([]);
+        setNewsSources([]);
+      })
       .finally(() => setNewsLoading(false));
   }, [playerId]);
 
@@ -357,7 +365,7 @@ export default function RookieModal({
               <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">
                 College News
               </h3>
-              <NewsSection news={news} loading={newsLoading} />
+              <NewsSection news={news} sources={newsSources} loading={newsLoading} />
             </div>
 
             {/* Depth Chart / Draft Status */}
@@ -775,9 +783,11 @@ function CareerTotals({
 
 function NewsSection({
   news,
+  sources,
   loading,
 }: {
   news: NewsItem[];
+  sources?: string[];
   loading: boolean;
 }) {
   if (loading) {
@@ -799,6 +809,11 @@ function NewsSection({
 
   return (
     <div className="space-y-4">
+      {sources && sources.length > 0 && (
+        <p className="text-[10px] text-text-muted -mt-1">
+          via {sources.join(", ")}
+        </p>
+      )}
       {news.map((item, i) => (
         <article
           key={i}
@@ -818,11 +833,18 @@ function NewsSection({
               {item.headline}
             </h4>
           )}
-          {item.published && (
-            <p className="text-[11px] text-text-muted mb-1.5">
-              {timeAgo(item.published)}
-            </p>
-          )}
+          <div className="flex items-center gap-1.5 mb-1.5">
+            {item.published && (
+              <span className="text-[11px] text-text-muted">
+                {timeAgo(item.published)}
+              </span>
+            )}
+            {item.source && (
+              <span className="text-[10px] text-text-muted opacity-60">
+                {item.source}
+              </span>
+            )}
+          </div>
           {item.description && (
             <p className="text-xs text-text-secondary leading-relaxed">
               {item.description}
