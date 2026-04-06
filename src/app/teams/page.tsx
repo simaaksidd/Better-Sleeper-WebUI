@@ -9,7 +9,7 @@ import { useState, useEffect, useMemo } from "react";
 import type { PlayerOnRoster } from "@/lib/types";
 
 export default function AllTeamsPage() {
-  const { loading: leagueLoading, league } = useLeagueContext();
+  const { loading: leagueLoading, league, leagueId } = useLeagueContext();
   const { rosters, loading: rostersLoading } = useRosters();
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerOnRoster | null>(
     null
@@ -18,14 +18,15 @@ export default function AllTeamsPage() {
   const [pickSeasons, setPickSeasons] = useState<string[]>([]);
 
   useEffect(() => {
-    fetch("/api/draft-picks")
+    if (!leagueId) return;
+    fetch(`/api/draft-picks?leagueId=${leagueId}`)
       .then((r) => (r.ok ? r.json() : { picks_by_owner: {}, seasons: [] }))
       .then((data) => {
         setPicksByOwner(data.picks_by_owner || {});
         setPickSeasons(data.seasons || []);
       })
       .catch(() => {});
-  }, []);
+  }, [leagueId]);
 
   const { starterCount, benchCount, reserveCount } = useMemo(() => {
     const positions = league?.roster_positions || [];

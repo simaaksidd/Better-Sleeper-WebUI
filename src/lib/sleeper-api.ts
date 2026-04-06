@@ -1,4 +1,4 @@
-import { SLEEPER_API_BASE, SLEEPER_STATS_BASE, LEAGUE_ID } from "./constants";
+import { SLEEPER_API_BASE, SLEEPER_STATS_BASE } from "./constants";
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -15,7 +15,7 @@ export async function fetchNflState() {
   }>(`${SLEEPER_API_BASE}/state/nfl`);
 }
 
-export async function fetchLeague() {
+export async function fetchLeague(leagueId: string) {
   return fetchJson<{
     league_id: string;
     name: string;
@@ -23,20 +23,20 @@ export async function fetchLeague() {
     total_rosters: number;
     roster_positions: string[];
     scoring_settings: Record<string, number>;
-  }>(`${SLEEPER_API_BASE}/league/${LEAGUE_ID}`);
+  }>(`${SLEEPER_API_BASE}/league/${leagueId}`);
 }
 
-export async function fetchUsers() {
+export async function fetchUsers(leagueId: string) {
   return fetchJson<
     Array<{
       user_id: string;
       display_name: string;
       avatar: string | null;
     }>
-  >(`${SLEEPER_API_BASE}/league/${LEAGUE_ID}/users`);
+  >(`${SLEEPER_API_BASE}/league/${leagueId}/users`);
 }
 
-export async function fetchRosters() {
+export async function fetchRosters(leagueId: string) {
   return fetchJson<
     Array<{
       roster_id: number;
@@ -54,7 +54,7 @@ export async function fetchRosters() {
         fpts_against_decimal: number;
       };
     }>
-  >(`${SLEEPER_API_BASE}/league/${LEAGUE_ID}/rosters`);
+  >(`${SLEEPER_API_BASE}/league/${leagueId}/rosters`);
 }
 
 export async function fetchAllPlayers() {
@@ -80,7 +80,7 @@ export async function fetchAllPlayers() {
   >(`${SLEEPER_API_BASE}/players/nfl`);
 }
 
-export async function fetchTransactions(week: number) {
+export async function fetchTransactions(leagueId: string, week: number) {
   return fetchJson<
     Array<{
       transaction_id: string;
@@ -99,7 +99,7 @@ export async function fetchTransactions(week: number) {
       settings: Record<string, number> | null;
       created: number;
     }>
-  >(`${SLEEPER_API_BASE}/league/${LEAGUE_ID}/transactions/${week}`);
+  >(`${SLEEPER_API_BASE}/league/${leagueId}/transactions/${week}`);
 }
 
 export interface SleeperDraft {
@@ -114,9 +114,9 @@ export interface SleeperDraft {
   };
 }
 
-export async function fetchDrafts() {
+export async function fetchDrafts(leagueId: string) {
   return fetchJson<SleeperDraft[]>(
-    `${SLEEPER_API_BASE}/league/${LEAGUE_ID}/drafts`
+    `${SLEEPER_API_BASE}/league/${leagueId}/drafts`
   );
 }
 
@@ -138,7 +138,7 @@ export async function fetchDraftPicks(draftId: string) {
   >(`${SLEEPER_API_BASE}/draft/${draftId}/picks`);
 }
 
-export async function fetchTradedPicks() {
+export async function fetchTradedPicks(leagueId: string) {
   return fetchJson<
     Array<{
       season: string;
@@ -147,7 +147,7 @@ export async function fetchTradedPicks() {
       previous_owner_id: number;
       owner_id: number;
     }>
-  >(`${SLEEPER_API_BASE}/league/${LEAGUE_ID}/traded_picks`);
+  >(`${SLEEPER_API_BASE}/league/${leagueId}/traded_picks`);
 }
 
 export interface SleeperBulkStatEntry {

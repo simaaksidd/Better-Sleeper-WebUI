@@ -38,7 +38,8 @@ function updateProgress(additionalWeight: number, phase: string) {
   syncPhase = phase;
 }
 
-export async function runFullSync() {
+export async function runFullSync(leagueId: string) {
+  if (!leagueId) return { status: "error", message: "No league ID provided" };
   if (syncing) return { status: "already_running" };
   syncing = true;
   syncProgress = 0;
@@ -47,6 +48,12 @@ export async function runFullSync() {
 
   try {
     const db = getDb();
+
+    // Clear league-specific tables to avoid stale data from a previous league
+    db.exec("DELETE FROM users");
+    db.exec("DELETE FROM rosters");
+    db.exec("DELETE FROM transactions");
+    db.exec("DELETE FROM drafts");
 
     // 1. NFL State
     const nflState = await fetchNflState();
@@ -62,7 +69,7 @@ export async function runFullSync() {
     updateProgress(1, "Fetching league...");
 
     // 2. League
-    const league = await fetchLeague();
+    const league = await fetchLeague(leagueId);
     db.prepare(
       `INSERT OR REPLACE INTO league (league_id, name, season, total_rosters, roster_positions, scoring_settings, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, unixepoch())`
@@ -77,7 +84,7 @@ export async function runFullSync() {
     updateProgress(1, "Fetching users...");
 
     // 3. Users
-    const users = await fetchUsers();
+    const users = await fetchUsers(leagueId);
     const upsertUser = db.prepare(
       `INSERT OR REPLACE INTO users (user_id, display_name, avatar, updated_at)
        VALUES (?, ?, ?, unixepoch())`
@@ -91,7 +98,7 @@ export async function runFullSync() {
     updateProgress(1, "Fetching rosters...");
 
     // 4. Rosters
-    const rosters = await fetchRosters();
+    const rosters = await fetchRosters(leagueId);
     const upsertRoster = db.prepare(
       `INSERT OR REPLACE INTO rosters (roster_id, owner_id, players, starters, reserve, wins, losses, ties, fpts, fpts_decimal, fpts_against, fpts_against_decimal, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
@@ -187,7 +194,7 @@ export async function runFullSync() {
 
     for (let week = 1; week <= 18; week++) {
       try {
-        const txs = await fetchTransactions(week);
+        const txs = await fetchTransactions(leagueId, week);
         insertTxBatch(txs, week);
       } catch {
         // Some weeks may not have transactions yet
@@ -197,7 +204,7 @@ export async function runFullSync() {
     }
 
     // 7. Drafts
-    const drafts = await fetchDrafts();
+    const drafts = await fetchDrafts(leagueId);
     const upsertDraftPick = db.prepare(
       `INSERT OR REPLACE INTO drafts (draft_id, round, pick_no, roster_id, player_id, picked_by, metadata, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch())`

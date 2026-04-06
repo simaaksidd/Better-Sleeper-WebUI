@@ -320,7 +320,7 @@ function TradeSummaryModal({
 }
 
 function TradeBuilder() {
-  const { loading: leagueLoading, league } = useLeagueContext();
+  const { loading: leagueLoading, league, leagueId } = useLeagueContext();
   const { rosters, loading: rostersLoading } = useRosters();
   const [selectedRosterIds, setSelectedRosterIds] = useState<number[]>([]);
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerOnRoster | null>(null);
@@ -333,14 +333,15 @@ function TradeBuilder() {
   const [selections, setSelections] = useState<Map<number, TradeSelection>>(new Map());
 
   useEffect(() => {
-    fetch("/api/draft-picks")
+    if (!leagueId) return;
+    fetch(`/api/draft-picks?leagueId=${leagueId}`)
       .then((r) => (r.ok ? r.json() : { picks_by_owner: {}, seasons: [] }))
       .then((data) => {
         setPicksByOwner(data.picks_by_owner || {});
         setPickSeasons(data.seasons || []);
       })
       .catch(() => {});
-  }, []);
+  }, [leagueId]);
 
   const { starterCount, benchCount, reserveCount } = useMemo(() => {
     const positions = league?.roster_positions || [];

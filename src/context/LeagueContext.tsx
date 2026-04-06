@@ -12,6 +12,10 @@ import {
 import type { LeagueInfo, NflState } from "@/lib/types";
 
 interface LeagueContextValue {
+  leagueId: string | null;
+  setLeagueId: (id: string) => void;
+  clearLeagueId: () => void;
+  hydrated: boolean;
   league: LeagueInfo | null;
   nflState: NflState | null;
   myRosterId: number | null;
@@ -19,10 +23,14 @@ interface LeagueContextValue {
   loading: boolean;
   syncing: boolean;
   syncProgress: number;
-  triggerSync: () => Promise<void>;
+  triggerSync: (overrideLeagueId?: string) => Promise<void>;
 }
 
 const LeagueCtx = createContext<LeagueContextValue>({
+  leagueId: null,
+  setLeagueId: () => {},
+  clearLeagueId: () => {},
+  hydrated: false,
   league: null,
   nflState: null,
   myRosterId: null,
@@ -34,6 +42,8 @@ const LeagueCtx = createContext<LeagueContextValue>({
 });
 
 export function LeagueProvider({ children }: { children: ReactNode }) {
+  const [leagueId, _setLeagueId] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
   const [league, setLeague] = useState<LeagueInfo | null>(null);
   const [nflState, setNflState] = useState<NflState | null>(null);
   const [myRosterId, _setMyRosterId] = useState<number | null>(null);
@@ -41,6 +51,20 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
   const [syncing, setSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState(0);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const setLeagueId = useCallback((id: string) => {
+    _setLeagueId(id);
+    localStorage.setItem("leagueId", id);
+  }, []);
+
+  const clearLeagueId = useCallback(() => {
+    _setLeagueId(null);
+    localStorage.removeItem("leagueId");
+    localStorage.removeItem("myRosterId");
+    _setMyRosterId(null);
+    setLeague(null);
+    setNflState(null);
+  }, []);
 
   const setMyRosterId = useCallback((id: number) => {
     _setMyRosterId(id);
@@ -97,12 +121,18 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
     }, 500);
   }, [fetchLeague]);
 
-  const triggerSync = useCallback(async () => {
+  const triggerSync = useCallback(async (overrideLeagueId?: string) => {
+    const id = overrideLeagueId || leagueId;
+    if (!id) return;
     setSyncing(true);
     setSyncProgress(0);
-    fetch("/api/sync", { method: "POST" }).catch(console.error);
+    fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leagueId: id }),
+    }).catch(console.error);
     startPolling();
-  }, [startPolling]);
+  }, [startPolling, leagueId]);
 
   useEffect(() => {
     return () => {
@@ -110,15 +140,29 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Hydrate from localStorage after mount to avoid SSR mismatch
   useEffect(() => {
-    const stored = localStorage.getItem("myRosterId");
-    if (stored) _setMyRosterId(parseInt(stored));
-    fetchLeague();
-  }, [fetchLeague]);
+    const storedLeague = localStorage.getItem("leagueId");
+    if (storedLeague) _setLeagueId(storedLeague);
+    const storedRoster = localStorage.getItem("myRosterId");
+    if (storedRoster) _setMyRosterId(parseInt(storedRoster));
+    setHydrated(true);
+  }, []);
+
+  // Fetch league data once hydrated and leagueId is known
+  useEffect(() => {
+    if (!hydrated) return;
+    if (leagueId) fetchLeague();
+    else setLoading(false);
+  }, [hydrated, leagueId, fetchLeague]);
 
   return (
     <LeagueCtx.Provider
       value={{
+        leagueId,
+        setLeagueId,
+        clearLeagueId,
+        hydrated,
         league,
         nflState,
         myRosterId,
