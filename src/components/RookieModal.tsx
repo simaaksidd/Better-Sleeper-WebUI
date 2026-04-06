@@ -165,9 +165,13 @@ export default function RookieModal({
     [playerId, gameLogs, gameLogLoading]
   );
 
+  // Auto-fetch game log when the default season is set on first load
+  useEffect(() => {
+    if (selectedSeason) fetchGameLog(selectedSeason);
+  }, [selectedSeason, fetchGameLog]);
+
   const handleSeasonClick = (season: number) => {
     setSelectedSeason(season);
-    fetchGameLog(season);
   };
 
   const handleBackdrop = useCallback(
