@@ -72,3 +72,31 @@ export async function fetchPlayerStats(
     `${NFLVERSE_BASE}/player_stats/player_stats_${season}.csv`
   );
 }
+
+// ── Combine data ──
+
+export interface NflverseCombineRow {
+  player_name: string;
+  pos: string | null;
+  school: string | null;
+  ht: string | null;
+  wt: string | null;
+  forty: number | null;
+  vertical: number | null;
+  bench: number | null;
+  broad_jump: number | null;
+  cone: number | null;
+  shuttle: number | null;
+  draft_year: number | null;
+  draft_team: string | null;
+  draft_round: number | null;
+  draft_ovr: number | null;
+  pfr_id: string | null;
+  cfb_id: string | null;
+}
+
+export async function fetchCombineData(): Promise<NflverseCombineRow[] | null> {
+  return fetchCsv<NflverseCombineRow>(
+    `${NFLVERSE_BASE}/combine/combine.csv`
+  );
+}

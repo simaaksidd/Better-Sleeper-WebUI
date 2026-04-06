@@ -154,6 +154,83 @@ function initSchema(db: Database.Database) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_player_stats_season ON player_stats(season, week);
+
+    CREATE TABLE IF NOT EXISTS combine_results (
+      player_name TEXT NOT NULL,
+      pos TEXT,
+      school TEXT,
+      ht TEXT,
+      wt TEXT,
+      forty REAL,
+      vertical REAL,
+      bench INTEGER,
+      broad_jump INTEGER,
+      cone REAL,
+      shuttle REAL,
+      draft_year INTEGER,
+      draft_team TEXT,
+      draft_round INTEGER,
+      draft_ovr INTEGER,
+      pfr_id TEXT,
+      cfb_id TEXT,
+      sleeper_id TEXT,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      PRIMARY KEY (player_name, school, draft_year)
+    );
+
+    CREATE TABLE IF NOT EXISTS college_stats_season (
+      espn_college_id TEXT NOT NULL,
+      season INTEGER NOT NULL,
+      stat_type TEXT NOT NULL DEFAULT 'general',
+      games_played INTEGER DEFAULT 0,
+      completions INTEGER DEFAULT 0,
+      attempts INTEGER DEFAULT 0,
+      passing_yards INTEGER DEFAULT 0,
+      passing_tds INTEGER DEFAULT 0,
+      interceptions INTEGER DEFAULT 0,
+      carries INTEGER DEFAULT 0,
+      rushing_yards INTEGER DEFAULT 0,
+      rushing_tds INTEGER DEFAULT 0,
+      receptions INTEGER DEFAULT 0,
+      receiving_yards INTEGER DEFAULT 0,
+      receiving_tds INTEGER DEFAULT 0,
+      fumbles_lost INTEGER DEFAULT 0,
+      sacks REAL DEFAULT 0,
+      tackles_total REAL DEFAULT 0,
+      tackles_for_loss REAL DEFAULT 0,
+      pass_defended INTEGER DEFAULT 0,
+      def_interceptions INTEGER DEFAULT 0,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      PRIMARY KEY (espn_college_id, season)
+    );
+
+    CREATE TABLE IF NOT EXISTS college_stats_games (
+      espn_college_id TEXT NOT NULL,
+      season INTEGER NOT NULL,
+      week INTEGER NOT NULL,
+      game_date TEXT,
+      opponent TEXT,
+      result TEXT,
+      completions INTEGER DEFAULT 0,
+      attempts INTEGER DEFAULT 0,
+      passing_yards INTEGER DEFAULT 0,
+      passing_tds INTEGER DEFAULT 0,
+      interceptions INTEGER DEFAULT 0,
+      carries INTEGER DEFAULT 0,
+      rushing_yards INTEGER DEFAULT 0,
+      rushing_tds INTEGER DEFAULT 0,
+      receptions INTEGER DEFAULT 0,
+      receiving_yards INTEGER DEFAULT 0,
+      receiving_tds INTEGER DEFAULT 0,
+      fumbles_lost INTEGER DEFAULT 0,
+      sacks REAL DEFAULT 0,
+      tackles_total REAL DEFAULT 0,
+      tackles_for_loss REAL DEFAULT 0,
+      pass_defended INTEGER DEFAULT 0,
+      def_interceptions INTEGER DEFAULT 0,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      PRIMARY KEY (espn_college_id, season, week)
+    );
   `);
 
   // Migrations for existing databases
@@ -166,5 +243,14 @@ function initSchema(db: Database.Database) {
   }
   if (!colNames.has("number")) {
     db.exec("ALTER TABLE players ADD COLUMN number INTEGER");
+  }
+
+  // Migration: add espn_college_id to player_id_map
+  const idMapCols = db
+    .prepare("PRAGMA table_info(player_id_map)")
+    .all() as Array<{ name: string }>;
+  const idMapColNames = new Set(idMapCols.map((c) => c.name));
+  if (!idMapColNames.has("espn_college_id")) {
+    db.exec("ALTER TABLE player_id_map ADD COLUMN espn_college_id TEXT");
   }
 }

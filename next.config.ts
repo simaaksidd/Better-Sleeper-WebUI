@@ -8,6 +8,11 @@ const nextConfig: NextConfig = {
         hostname: "sleepercdn.com",
         pathname: "/**",
       },
+      {
+        protocol: "https",
+        hostname: "a.espncdn.com",
+        pathname: "/**",
+      },
     ],
   },
   serverExternalPackages: ["better-sqlite3"],
