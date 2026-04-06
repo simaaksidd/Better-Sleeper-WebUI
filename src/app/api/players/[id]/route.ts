@@ -30,5 +30,7 @@ export async function GET(
     years_exp: player.years_exp,
     injury_status: player.injury_status,
     status: player.status,
+    espn_id: player.espn_id ?? null,
+    number: player.number ?? null,
   });
 }

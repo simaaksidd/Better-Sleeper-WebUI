@@ -14,7 +14,7 @@ const links = [
 
 export default function Nav() {
   const pathname = usePathname();
-  const { league, syncing, syncProgress, triggerSync } = useLeagueContext();
+  const { league, syncing, syncProgress, triggerSync, clearLeagueId } = useLeagueContext();
 
   return (
     <nav className="border-b border-border bg-bg-card sticky top-0 z-40">
@@ -39,25 +39,33 @@ export default function Nav() {
             ))}
           </div>
         </div>
-        <button
-          onClick={triggerSync}
-          disabled={syncing}
-          className={`w-[120px] py-1.5 text-sm rounded border border-border transition-colors ${
-            syncing
-              ? "disabled:opacity-100"
-              : "bg-bg-hover text-text-secondary hover:text-text-primary hover:border-text-muted disabled:opacity-50"
-          }`}
-          style={
-            syncing
-              ? {
-                  background: `linear-gradient(to right, var(--color-accent) ${syncProgress}%, var(--color-bg-hover) ${syncProgress}%)`,
-                  color: syncProgress > 50 ? "white" : undefined,
-                }
-              : undefined
-          }
-        >
-          {syncing ? `Syncing ${syncProgress}%` : "Refresh Data"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => triggerSync()}
+            disabled={syncing}
+            className={`py-1.5 px-3 text-sm rounded border border-border transition-colors ${
+              syncing
+                ? "disabled:opacity-100 w-[120px]"
+                : "bg-bg-hover text-text-secondary hover:text-text-primary hover:border-text-muted disabled:opacity-50"
+            }`}
+            style={
+              syncing
+                ? {
+                    background: `linear-gradient(to right, var(--color-accent) ${syncProgress}%, var(--color-bg-hover) ${syncProgress}%)`,
+                    color: syncProgress > 50 ? "white" : undefined,
+                  }
+                : undefined
+            }
+          >
+            {syncing ? `Syncing ${syncProgress}%` : "Refresh Data"}
+          </button>
+          <button
+            onClick={clearLeagueId}
+            className="py-1.5 px-3 text-sm rounded border border-border bg-bg-hover text-text-secondary hover:text-text-primary hover:border-text-muted transition-colors"
+          >
+            Change League
+          </button>
+        </div>
       </div>
     </nav>
   );

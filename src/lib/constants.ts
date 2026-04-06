@@ -1,5 +1,3 @@
-export const LEAGUE_ID = process.env.SLEEPER_LEAGUE_ID || "";
-
 export const SLEEPER_API_BASE = "https://api.sleeper.app/v1";
 export const SLEEPER_STATS_BASE = "https://api.sleeper.com";
 export const SLEEPER_CDN = "https://sleepercdn.com";

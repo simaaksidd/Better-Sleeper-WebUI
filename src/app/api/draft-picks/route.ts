@@ -12,12 +12,21 @@ interface DraftPick {
   original_owner_name: string;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const leagueId = searchParams.get("leagueId");
+    if (!leagueId) {
+      return NextResponse.json(
+        { error: "Missing leagueId" },
+        { status: 400 }
+      );
+    }
+
     const db = getDb();
 
     // Get all drafts — look for rookie drafts with draft_order per season
-    const drafts = await fetchDrafts();
+    const drafts = await fetchDrafts(leagueId);
 
     // Build a map of season -> draft_order for any rookie draft (player_type=1)
     // that has a draft_order set
@@ -54,7 +63,7 @@ export async function GET() {
     }
 
     // Fetch traded picks from Sleeper
-    const tradedPicks = await fetchTradedPicks();
+    const tradedPicks = await fetchTradedPicks(leagueId);
 
     // Build a lookup of traded picks: "season-round-roster_id" -> owner_id
     const tradedMap: Record<string, number> = {};

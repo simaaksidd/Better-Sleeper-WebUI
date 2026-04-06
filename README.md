@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Sleeper Dashboard
+
+A fantasy football league dashboard that connects to the [Sleeper](https://sleeper.com) API. View rosters, trades, draft history, rookies, and player stats — all in a dark-themed, data-dense UI.
+
+## Features
+
+- **My Team** -- View your roster with starters, bench, and draft picks
+- **All Teams** -- Browse every team in your league side-by-side
+- **Trades** -- See all trades with full player and pick details
+- **History** -- Season-by-season draft and transaction history
+- **Rookies** -- Rookie class browser with college stats and news
+- **Player Modal** -- Tap any player to see game logs, depth chart position, news, and season stats
+- **Sync** -- One-click sync pulls the latest data from Sleeper and caches it in a local SQLite database
+
+## Tech Stack
+
+- **Next.js 16** (App Router) with React 19
+- **Tailwind CSS 4** for styling
+- **better-sqlite3** for local data caching
+- **nflverse** data for player stats and game logs
+- **Sleeper API** for league, roster, and transaction data
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js 18+
+- npm
+
+### Install and run
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Connect your league
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. On first load you'll see a welcome screen
+2. Enter your Sleeper league ID and hit **Sync**
+3. Select your team from the dropdown
 
-## Learn More
+Your league ID is in the URL when you view your league on Sleeper: `https://sleeper.com/leagues/<league_id>`
 
-To learn more about Next.js, take a look at the following resources:
+## Project Structure
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+src/
+  app/              # Next.js pages and API routes
+    api/            # REST endpoints (rosters, trades, drafts, sync, etc.)
+    history/        # Draft/transaction history page
+    rookies/        # Rookie browser page
+    teams/          # All teams page
+    trades/         # Trades page
+  components/       # UI components (PlayerModal, TradeCard, Nav, etc.)
+  context/          # LeagueContext (league ID, sync state, NFL state)
+  hooks/            # Data-fetching hooks (useRosters, usePlayerStats, etc.)
+  lib/              # Sleeper API client, DB layer, types, utilities
+data/
+  sleeper.db        # Local SQLite database (auto-created on first sync)
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Scripts
 
-## Deploy on Vercel
+| Command         | Description              |
+| --------------- | ------------------------ |
+| `npm run dev`   | Start dev server         |
+| `npm run build` | Production build         |
+| `npm start`     | Start production server  |
+| `npm run lint`  | Run ESLint               |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## License
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Apache 2.0 -- see [LICENSE](LICENSE) for details.

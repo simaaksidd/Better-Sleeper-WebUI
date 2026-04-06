@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from "react";
 import PositionBadge from "@/components/PositionBadge";
-import PlayerModal from "@/components/PlayerModal";
-import type { PlayerOnRoster } from "@/lib/types";
+import RookieModal from "@/components/RookieModal";
 
 interface Rookie {
   rank: number;
@@ -20,9 +19,7 @@ interface Rookie {
 export default function RookiesPage() {
   const [rookies, setRookies] = useState<Rookie[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedPlayer, setSelectedPlayer] = useState<PlayerOnRoster | null>(
-    null
-  );
+  const [selectedRookie, setSelectedRookie] = useState<Rookie | null>(null);
   const [posFilter, setPosFilter] = useState<string>("ALL");
 
   useEffect(() => {
@@ -109,17 +106,7 @@ export default function RookiesPage() {
                   }`}
                   onClick={() => {
                     if (r.sleeper_id) {
-                      setSelectedPlayer({
-                        player_id: r.sleeper_id,
-                        full_name: r.name,
-                        first_name: "",
-                        last_name: "",
-                        position: r.position,
-                        team: null,
-                        injury_status: null,
-                        years_exp: 0,
-                        age: null,
-                      });
+                      setSelectedRookie(r);
                     }
                   }}
                 >
@@ -162,10 +149,12 @@ export default function RookiesPage() {
         </div>
       )}
 
-      {selectedPlayer && (
-        <PlayerModal
-          player={selectedPlayer}
-          onClose={() => setSelectedPlayer(null)}
+      {selectedRookie && selectedRookie.sleeper_id && (
+        <RookieModal
+          playerId={selectedRookie.sleeper_id}
+          playerName={selectedRookie.name}
+          position={selectedRookie.position}
+          onClose={() => setSelectedRookie(null)}
         />
       )}
     </div>

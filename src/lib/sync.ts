@@ -10,7 +10,11 @@ import {
   fetchDraftPicks,
   fetchSleeperBulkWeekStats,
 } from "./sleeper-api";
-import { fetchNflversePlayers, fetchPlayerStats } from "./nflverse";
+import { fetchNflversePlayers, fetchPlayerStats, fetchCombineData } from "./nflverse";
+import {
+  resolveEspnCollegeIds,
+  fetchCollegeSeasonStats,
+} from "./espn-college";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -18,7 +22,7 @@ let syncing = false;
 let syncProgress = 0;
 let syncPhase = "";
 let completedWeight = 0;
-const TOTAL_WEIGHT = 51;
+const TOTAL_WEIGHT = 61;
 
 export function isSyncing() {
   return syncing;
@@ -34,7 +38,8 @@ function updateProgress(additionalWeight: number, phase: string) {
   syncPhase = phase;
 }
 
-export async function runFullSync() {
+export async function runFullSync(leagueId: string) {
+  if (!leagueId) return { status: "error", message: "No league ID provided" };
   if (syncing) return { status: "already_running" };
   syncing = true;
   syncProgress = 0;
@@ -43,6 +48,12 @@ export async function runFullSync() {
 
   try {
     const db = getDb();
+
+    // Clear league-specific tables to avoid stale data from a previous league
+    db.exec("DELETE FROM users");
+    db.exec("DELETE FROM rosters");
+    db.exec("DELETE FROM transactions");
+    db.exec("DELETE FROM drafts");
 
     // 1. NFL State
     const nflState = await fetchNflState();
@@ -58,7 +69,7 @@ export async function runFullSync() {
     updateProgress(1, "Fetching league...");
 
     // 2. League
-    const league = await fetchLeague();
+    const league = await fetchLeague(leagueId);
     db.prepare(
       `INSERT OR REPLACE INTO league (league_id, name, season, total_rosters, roster_positions, scoring_settings, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, unixepoch())`
@@ -73,7 +84,7 @@ export async function runFullSync() {
     updateProgress(1, "Fetching users...");
 
     // 3. Users
-    const users = await fetchUsers();
+    const users = await fetchUsers(leagueId);
     const upsertUser = db.prepare(
       `INSERT OR REPLACE INTO users (user_id, display_name, avatar, updated_at)
        VALUES (?, ?, ?, unixepoch())`
@@ -87,7 +98,7 @@ export async function runFullSync() {
     updateProgress(1, "Fetching rosters...");
 
     // 4. Rosters
-    const rosters = await fetchRosters();
+    const rosters = await fetchRosters(leagueId);
     const upsertRoster = db.prepare(
       `INSERT OR REPLACE INTO rosters (roster_id, owner_id, players, starters, reserve, wins, losses, ties, fpts, fpts_decimal, fpts_against, fpts_against_decimal, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
@@ -116,11 +127,12 @@ export async function runFullSync() {
     // 5. Players (large ~5MB)
     const allPlayers = await fetchAllPlayers();
     const upsertPlayer = db.prepare(
-      `INSERT OR REPLACE INTO players (player_id, first_name, last_name, full_name, position, team, age, height, weight, college, years_exp, injury_status, status, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
+      `INSERT OR REPLACE INTO players (player_id, first_name, last_name, full_name, position, team, age, height, weight, college, years_exp, injury_status, status, espn_id, number, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
     );
     const insertPlayers = db.transaction(() => {
       for (const [id, p] of Object.entries(allPlayers)) {
+        const raw = p as Record<string, unknown>;
         upsertPlayer.run(
           id,
           p.first_name,
@@ -134,7 +146,9 @@ export async function runFullSync() {
           p.college,
           p.years_exp ?? 0,
           p.injury_status,
-          p.status
+          p.status,
+          (raw.espn_id as number) ?? null,
+          (raw.number as number) ?? null
         );
       }
     });
@@ -180,7 +194,7 @@ export async function runFullSync() {
 
     for (let week = 1; week <= 18; week++) {
       try {
-        const txs = await fetchTransactions(week);
+        const txs = await fetchTransactions(leagueId, week);
         insertTxBatch(txs, week);
       } catch {
         // Some weeks may not have transactions yet
@@ -190,7 +204,7 @@ export async function runFullSync() {
     }
 
     // 7. Drafts
-    const drafts = await fetchDrafts();
+    const drafts = await fetchDrafts(leagueId);
     const upsertDraftPick = db.prepare(
       `INSERT OR REPLACE INTO drafts (draft_id, round, pick_no, roster_id, player_id, picked_by, metadata, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch())`
@@ -315,6 +329,10 @@ export async function runFullSync() {
       });
       completedWeight += weightPerSeason;
     }
+
+    // 10. Rookie data: combine results + ESPN college ID resolution + college season stats
+    updateProgress(0, "Syncing combine data...");
+    await syncRookieData(db, allPlayers);
 
     return { status: "ok", season: leagueSeason };
   } finally {
@@ -468,6 +486,213 @@ async function syncSeasonStats(
     await delay(50);
   }
   console.log(`Synced season ${season} from Sleeper bulk (${totalRows} rows)`);
+}
+
+type SleeperPlayerRecord = {
+  player_id: string;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  position: string;
+  team: string | null;
+  age: number | null;
+  height: string | null;
+  weight: string | null;
+  college: string | null;
+  years_exp: number;
+  injury_status: string | null;
+  status: string;
+};
+
+async function syncRookieData(
+  db: import("better-sqlite3").Database,
+  allPlayers: Record<string, SleeperPlayerRecord>
+) {
+  // (a) Download combine CSV → upsert into combine_results
+  try {
+    const combineRows = await fetchCombineData();
+    if (combineRows && combineRows.length > 0) {
+      const upsertCombine = db.prepare(
+        `INSERT OR REPLACE INTO combine_results
+         (player_name, pos, school, ht, wt, forty, vertical, bench, broad_jump, cone, shuttle,
+          draft_year, draft_team, draft_round, draft_ovr, pfr_id, cfb_id, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
+      );
+      const insertCombineBatch = db.transaction(() => {
+        for (const r of combineRows) {
+          if (!r.player_name) continue;
+          upsertCombine.run(
+            r.player_name,
+            r.pos,
+            r.school,
+            r.ht,
+            r.wt,
+            r.forty,
+            r.vertical,
+            r.bench,
+            r.broad_jump,
+            r.cone,
+            r.shuttle,
+            r.draft_year,
+            r.draft_team,
+            r.draft_round,
+            r.draft_ovr,
+            r.pfr_id,
+            r.cfb_id
+          );
+        }
+      });
+      insertCombineBatch();
+      console.log(`Synced ${combineRows.length} combine rows`);
+    }
+  } catch (e) {
+    console.error("Failed to sync combine data:", e);
+  }
+  updateProgress(2, "Resolving rookie ESPN IDs...");
+
+  // (b) Find rookies (years_exp=0) without espn_college_id
+  const rookies: Array<{
+    sleeper_id: string;
+    first_name: string;
+    last_name: string;
+    college: string | null;
+    espn_id: number | null;
+  }> = [];
+
+  const existingIds = new Set<string>();
+  const existingRows = db
+    .prepare("SELECT sleeper_id FROM player_id_map WHERE espn_college_id IS NOT NULL")
+    .all() as Array<{ sleeper_id: string }>;
+  for (const row of existingRows) {
+    if (row.sleeper_id) existingIds.add(row.sleeper_id);
+  }
+
+  for (const [id, p] of Object.entries(allPlayers)) {
+    if ((p.years_exp ?? 0) !== 0) continue;
+    if (!p.position || !["QB", "RB", "WR", "TE"].includes(p.position)) continue;
+    if (existingIds.has(id)) continue;
+    rookies.push({
+      sleeper_id: id,
+      first_name: p.first_name || "",
+      last_name: p.last_name || "",
+      college: p.college || null,
+      espn_id: (p as Record<string, unknown>).espn_id as number | null,
+    });
+  }
+
+  if (rookies.length > 0) {
+    console.log(`Resolving ESPN college IDs for ${rookies.length} rookies...`);
+    const resolved = await resolveEspnCollegeIds(rookies);
+
+    const upsertCollegeId = db.prepare(
+      `UPDATE player_id_map SET espn_college_id = ?, updated_at = unixepoch() WHERE sleeper_id = ?`
+    );
+    const insertCollegeId = db.prepare(
+      `INSERT OR IGNORE INTO player_id_map (gsis_id, sleeper_id, name, position, espn_college_id, updated_at)
+       VALUES (?, ?, ?, ?, ?, unixepoch())`
+    );
+
+    const saveIds = db.transaction(() => {
+      for (const [sleeperId, espnCollegeId] of resolved) {
+        // Try updating existing row first
+        const result = upsertCollegeId.run(espnCollegeId, sleeperId);
+        if (result.changes === 0) {
+          // No existing row — insert with a placeholder gsis_id
+          const player = allPlayers[sleeperId];
+          const name = player?.full_name || `${player?.first_name || ""} ${player?.last_name || ""}`.trim();
+          insertCollegeId.run(
+            `rookie_${sleeperId}`,
+            sleeperId,
+            name,
+            player?.position || null,
+            espnCollegeId
+          );
+        }
+      }
+    });
+    saveIds();
+    console.log(`Resolved ${resolved.size} ESPN college IDs`);
+  }
+  updateProgress(5, "Fetching college stats...");
+
+  // (c) Fetch college season stats for rookies with espn_college_id
+  const rookiesWithEspn = db
+    .prepare(
+      `SELECT sleeper_id, espn_college_id FROM player_id_map
+       WHERE espn_college_id IS NOT NULL AND sleeper_id IS NOT NULL`
+    )
+    .all() as Array<{ sleeper_id: string; espn_college_id: string }>;
+
+  // Only fetch for players who are actually rookies
+  const rookieIds = new Set<string>();
+  for (const [id, p] of Object.entries(allPlayers)) {
+    if ((p.years_exp ?? 0) === 0) rookieIds.add(id);
+  }
+
+  // Only consider rows with actual data as cached — all-zero rows from the
+  // broken parser should be re-fetched
+  const alreadyCached = new Set<string>();
+  const cachedRows = db
+    .prepare(
+      `SELECT DISTINCT espn_college_id FROM college_stats_season
+       WHERE (completions + attempts + passing_yards + carries + rushing_yards +
+              receptions + receiving_yards + tackles_total + sacks) > 0`
+    )
+    .all() as Array<{ espn_college_id: string }>;
+  for (const row of cachedRows) {
+    alreadyCached.add(row.espn_college_id);
+  }
+
+  const upsertCollegeSeason = db.prepare(
+    `INSERT OR REPLACE INTO college_stats_season
+     (espn_college_id, season, games_played, completions, attempts, passing_yards, passing_tds,
+      interceptions, carries, rushing_yards, rushing_tds, receptions, receiving_yards, receiving_tds,
+      fumbles_lost, sacks, tackles_total, tackles_for_loss, pass_defended, def_interceptions, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
+  );
+
+  let statsFetched = 0;
+  for (const row of rookiesWithEspn) {
+    if (!rookieIds.has(row.sleeper_id)) continue;
+    if (alreadyCached.has(row.espn_college_id)) continue;
+
+    try {
+      const seasons = await fetchCollegeSeasonStats(row.espn_college_id);
+      const insertSeasons = db.transaction(() => {
+        for (const s of seasons) {
+          upsertCollegeSeason.run(
+            row.espn_college_id,
+            s.season,
+            s.gamesPlayed,
+            s.completions,
+            s.attempts,
+            s.passingYards,
+            s.passingTds,
+            s.interceptions,
+            s.carries,
+            s.rushingYards,
+            s.rushingTds,
+            s.receptions,
+            s.receivingYards,
+            s.receivingTds,
+            s.fumblesLost,
+            s.sacks,
+            s.tacklesTotal,
+            s.tacklesForLoss,
+            s.passDefended,
+            s.defInterceptions
+          );
+        }
+      });
+      insertSeasons();
+      statsFetched++;
+    } catch (e) {
+      console.error(`Failed to fetch college stats for ${row.espn_college_id}:`, e);
+    }
+    await delay(100);
+    updateProgress(3 / Math.max(rookiesWithEspn.length, 1), `College stats ${statsFetched}/${rookiesWithEspn.length}`);
+  }
+  console.log(`Fetched college season stats for ${statsFetched} rookies`);
 }
 
 function normalizeName(name: string): string {
