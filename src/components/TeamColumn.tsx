@@ -49,20 +49,18 @@ export function PlayerCell({
   const isDef =
     player.position === "DEF" || /^[A-Z]{2,3}$/.test(player.player_id);
 
-  const handleClick = () => {
-    if (selectable && onToggle) {
-      onToggle();
-    } else {
-      onClick();
-    }
-  };
-
   return (
     <div
-      onClick={handleClick}
-      className={`flex items-center gap-2 px-2 h-10 cursor-pointer transition-colors rounded ${
+      onClick={() => {
+        if (selectable && onToggle) {
+          onToggle();
+        } else {
+          onClick();
+        }
+      }}
+      className={`flex items-center gap-2 px-2 h-10 transition-colors rounded ${
         selected ? "bg-accent/10" : "hover:bg-bg-hover"
-      }`}
+      } ${selectable ? "" : "cursor-pointer"}`}
     >
       <div className="w-7 h-7 rounded-full overflow-hidden bg-bg-hover shrink-0 flex items-center justify-center">
         {isDef || imgError ? (
@@ -81,7 +79,17 @@ export function PlayerCell({
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <span className="text-xs font-medium truncate block leading-tight">
+        <span
+          onClick={(e) => {
+            if (selectable) {
+              e.stopPropagation();
+              onClick();
+            }
+          }}
+          className={`text-xs font-medium truncate block leading-tight hover:underline ${
+            selectable ? "cursor-pointer" : ""
+          }`}
+        >
           {player.full_name}
         </span>
         <div className="flex items-center gap-1">
@@ -151,6 +159,7 @@ export default function TeamColumn({
   onTogglePlayer?: (player: PlayerOnRoster) => void;
   onTogglePick?: (pick: DraftPick) => void;
 }) {
+  const [benchOpen, setBenchOpen] = useState(false);
   const avatar = avatarUrl(roster.avatar);
 
   const starterSet = new Set(roster.starters);
@@ -235,17 +244,45 @@ export default function TeamColumn({
       </div>
 
       {/* Bench */}
-      <div className="px-1 pt-1">
-        <div className="px-2 py-1 border-t border-border">
-          <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">
-            Bench
-          </span>
+      {selectable ? (() => {
+        const selectedBench = bench.filter(p => selectedPlayerIds?.has(p.player_id));
+        const unselectedBench = bench.filter(p => !selectedPlayerIds?.has(p.player_id));
+        return (
+          <div className="px-1 pt-1">
+            <div
+              className="px-2 py-1 border-t border-border flex items-center justify-between cursor-pointer hover:bg-bg-hover/50 rounded transition-colors"
+              onClick={() => setBenchOpen(!benchOpen)}
+            >
+              <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">
+                Bench ({bench.length})
+              </span>
+              <svg
+                className={`w-3 h-3 text-text-muted transition-transform ${benchOpen ? "rotate-180" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
+            {selectedBench.map(p => renderPlayer(p))}
+            {benchOpen && unselectedBench.map(p => renderPlayer(p))}
+          </div>
+        );
+      })() : (
+        <div className="px-1 pt-1">
+          <div className="px-2 py-1 border-t border-border">
+            <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">
+              Bench
+            </span>
+          </div>
+          {Array.from({ length: benchCount }).map((_, i) => {
+            const player = bench[i] || null;
+            return player ? renderPlayer(player) : <EmptySlot key={`bench-empty-${i}`} />;
+          })}
         </div>
-        {Array.from({ length: benchCount }).map((_, i) => {
-          const player = bench[i] || null;
-          return player ? renderPlayer(player) : <EmptySlot key={`bench-empty-${i}`} />;
-        })}
-      </div>
+      )}
 
       {/* IR / Taxi */}
       {reserveCount > 0 && (

@@ -442,93 +442,58 @@ function TradeBuilder() {
   return (
     <div className="fixed inset-0 top-14 overflow-auto bg-bg-primary z-0">
       <div className="px-8 py-8">
-        {/* Controls row */}
-        <div className="flex justify-center items-center gap-3 mb-4">
-          {selections.size > 0 && (
+        {/* Controls */}
+        <div className="flex flex-col items-center gap-2 mb-4">
+          <div className="flex justify-center items-center gap-3">
             <button
               onClick={() => setSelections(new Map())}
-              className="flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors"
-            >
-              Clear
-            </button>
-          )}
-          <div className="relative">
-            <button
-              onClick={() => !allTeamsAdded && setDropdownOpen(!dropdownOpen)}
-              className={`flex items-center gap-2 px-6 py-3 bg-bg-card rounded-lg border border-border border-dashed transition-colors ${
-                allTeamsAdded
-                  ? "opacity-40 cursor-not-allowed"
-                  : "hover:border-accent hover:bg-bg-hover cursor-pointer"
+              disabled={selections.size === 0}
+              className={`flex items-center gap-2 px-6 py-3 rounded-lg text-sm font-medium transition-colors ${
+                selections.size > 0
+                  ? "bg-accent hover:bg-accent-hover text-white"
+                  : "bg-bg-card border border-border text-text-muted opacity-40 cursor-not-allowed"
               }`}
             >
-              <svg
-                className="w-5 h-5 text-text-muted"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                strokeWidth={2}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-              <span className="text-sm font-medium text-text-secondary">Add Team</span>
+              Clear Players
             </button>
-
-            {dropdownOpen && !allTeamsAdded && (
-              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-bg-card rounded-xl border border-border shadow-lg z-10 max-h-80 overflow-y-auto w-56">
-                {availableRosters.map((r) => {
-                  const av = avatarUrl(r.avatar);
-                  return (
-                    <button
-                      key={r.roster_id}
-                      onClick={() => addTeam(r.roster_id)}
-                      className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-bg-hover transition-colors text-left"
-                    >
-                      <div className="w-7 h-7 rounded-full overflow-hidden bg-bg-hover shrink-0 flex items-center justify-center">
-                        {av ? (
-                          <Image
-                            src={av}
-                            alt={r.display_name}
-                            width={28}
-                            height={28}
-                            className="object-cover w-full h-full"
-                          />
-                        ) : (
-                          <span className="text-xs font-bold text-text-muted">
-                            {r.display_name.charAt(0).toUpperCase()}
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-sm font-medium">{r.display_name}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {canCreateTrade && (
             <button
               onClick={() => setShowSummary(true)}
-              className="flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors"
+              disabled={!canCreateTrade}
+              className={`flex items-center gap-2 px-6 py-3 rounded-lg text-sm font-medium transition-colors ${
+                canCreateTrade
+                  ? "bg-emerald-500/80 hover:bg-emerald-500 text-white"
+                  : "bg-bg-card border border-border text-text-muted opacity-40 cursor-not-allowed"
+              }`}
             >
               Create Trade
             </button>
-          )}
+            <button
+              onClick={() => { setSelectedRosterIds([]); setSelections(new Map()); }}
+              disabled={selectedRosterIds.length === 0}
+              className={`flex items-center gap-2 px-6 py-3 rounded-lg text-sm font-medium transition-colors ${
+                selectedRosterIds.length > 0
+                  ? "bg-accent hover:bg-accent-hover text-white"
+                  : "bg-bg-card border border-border text-text-muted opacity-40 cursor-not-allowed"
+              }`}
+            >
+              Clear Teams
+            </button>
+          </div>
         </div>
 
         {/* Team columns */}
-        {selectedRosters.length > 0 ? (
-          <div
-            className="grid gap-2"
-            style={{
-              gridTemplateColumns: `repeat(${selectedRosters.length}, minmax(0, 1fr))`,
-            }}
-          >
-            {selectedRosters.map((r) => {
-              const sel = selections.get(r.roster_id);
-              return (
+        <div className="flex justify-center items-stretch gap-2">
+          {selectedRosters.map((r) => {
+            const sel = selections.get(r.roster_id);
+            return (
+              <div
+                key={r.roster_id}
+                style={{
+                  width: `calc((100% - ${(rosters.length - 1) * 0.5}rem) / ${rosters.length})`,
+                  flexShrink: 0,
+                }}
+              >
                 <TeamColumn
-                  key={r.roster_id}
                   roster={r}
                   onPlayerClick={setSelectedPlayer}
                   picks={picksByOwner[r.roster_id] || []}
@@ -543,14 +508,65 @@ function TradeBuilder() {
                   onTogglePlayer={(p) => togglePlayer(r.roster_id, p)}
                   onTogglePick={(pk) => togglePick(r.roster_id, pk)}
                 />
-              );
-            })}
-          </div>
-        ) : (
-          <p className="text-text-secondary text-center py-10">
-            Add teams to compare rosters for a trade.
-          </p>
-        )}
+              </div>
+            );
+          })}
+          {!allTeamsAdded && (
+            <div
+              className="relative"
+              style={{
+                width: `calc((100% - ${(rosters.length - 1) * 0.5}rem) / ${rosters.length})`,
+                flexShrink: 0,
+              }}
+            >
+              <div
+                onClick={() => setDropdownOpen(!dropdownOpen)}
+                className="h-full min-h-[120px] rounded-xl border border-border border-dashed flex items-center justify-center cursor-pointer hover:border-accent hover:bg-bg-hover/50 transition-colors"
+              >
+                <svg
+                  className="w-8 h-8 text-text-muted"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.5}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+              </div>
+              {dropdownOpen && (
+                <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-bg-card rounded-xl border border-border shadow-lg z-10 max-h-80 overflow-y-auto w-56">
+                  {availableRosters.map((r) => {
+                    const av = avatarUrl(r.avatar);
+                    return (
+                      <button
+                        key={r.roster_id}
+                        onClick={() => addTeam(r.roster_id)}
+                        className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-bg-hover transition-colors text-left"
+                      >
+                        <div className="w-7 h-7 rounded-full overflow-hidden bg-bg-hover shrink-0 flex items-center justify-center">
+                          {av ? (
+                            <Image
+                              src={av}
+                              alt={r.display_name}
+                              width={28}
+                              height={28}
+                              className="object-cover w-full h-full"
+                            />
+                          ) : (
+                            <span className="text-xs font-bold text-text-muted">
+                              {r.display_name.charAt(0).toUpperCase()}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-sm font-medium">{r.display_name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {selectedPlayer && (
