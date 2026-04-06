@@ -50,109 +50,76 @@ export async function runFullSync(leagueId: string) {
     const db = getDb();
 
     // Clear league-specific tables to avoid stale data from a previous league
-    db.exec("DELETE FROM users");
+    // rosters must be deleted before users due to foreign key constraint
     db.exec("DELETE FROM rosters");
+    db.exec("DELETE FROM users");
     db.exec("DELETE FROM transactions");
     db.exec("DELETE FROM drafts");
 
-    // 1. NFL State
-    const nflState = await fetchNflState();
+    // 1-5. Fetch league metadata + players in parallel
+    updateProgress(0, "Fetching league data...");
+    const [nflState, league, users, rosters, allPlayers] = await Promise.all([
+      fetchNflState(),
+      fetchLeague(leagueId),
+      fetchUsers(leagueId),
+      fetchRosters(leagueId),
+      fetchAllPlayers(),
+    ]);
+    updateProgress(4, "Saving league data...");
+
+    // Write to DB (synchronous, order matters: users before rosters for FK)
     db.prepare(
       `INSERT OR REPLACE INTO nfl_state (key, season, week, season_type, display_week, updated_at)
        VALUES ('current', ?, ?, ?, ?, unixepoch())`
-    ).run(
-      nflState.season,
-      nflState.week,
-      nflState.season_type,
-      nflState.display_week
-    );
-    updateProgress(1, "Fetching league...");
+    ).run(nflState.season, nflState.week, nflState.season_type, nflState.display_week);
 
-    // 2. League
-    const league = await fetchLeague(leagueId);
     db.prepare(
       `INSERT OR REPLACE INTO league (league_id, name, season, total_rosters, roster_positions, scoring_settings, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, unixepoch())`
-    ).run(
-      league.league_id,
-      league.name,
-      league.season,
-      league.total_rosters,
-      JSON.stringify(league.roster_positions),
-      JSON.stringify(league.scoring_settings)
-    );
-    updateProgress(1, "Fetching users...");
+    ).run(league.league_id, league.name, league.season, league.total_rosters,
+      JSON.stringify(league.roster_positions), JSON.stringify(league.scoring_settings));
 
-    // 3. Users
-    const users = await fetchUsers(leagueId);
     const upsertUser = db.prepare(
       `INSERT OR REPLACE INTO users (user_id, display_name, avatar, updated_at)
        VALUES (?, ?, ?, unixepoch())`
     );
-    const insertUsers = db.transaction(() => {
-      for (const u of users) {
-        upsertUser.run(u.user_id, u.display_name, u.avatar);
-      }
-    });
-    insertUsers();
-    updateProgress(1, "Fetching rosters...");
+    db.transaction(() => {
+      for (const u of users) upsertUser.run(u.user_id, u.display_name, u.avatar);
+    })();
 
-    // 4. Rosters
-    const rosters = await fetchRosters(leagueId);
     const upsertRoster = db.prepare(
       `INSERT OR REPLACE INTO rosters (roster_id, owner_id, players, starters, reserve, wins, losses, ties, fpts, fpts_decimal, fpts_against, fpts_against_decimal, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
     );
-    const insertRosters = db.transaction(() => {
+    db.transaction(() => {
       for (const r of rosters) {
         upsertRoster.run(
-          r.roster_id,
-          r.owner_id,
-          JSON.stringify(r.players || []),
-          JSON.stringify(r.starters || []),
+          r.roster_id, r.owner_id,
+          JSON.stringify(r.players || []), JSON.stringify(r.starters || []),
           r.reserve ? JSON.stringify(r.reserve) : null,
-          r.settings?.wins ?? 0,
-          r.settings?.losses ?? 0,
-          r.settings?.ties ?? 0,
-          r.settings?.fpts ?? 0,
-          r.settings?.fpts_decimal ?? 0,
-          r.settings?.fpts_against ?? 0,
-          r.settings?.fpts_against_decimal ?? 0
+          r.settings?.wins ?? 0, r.settings?.losses ?? 0, r.settings?.ties ?? 0,
+          r.settings?.fpts ?? 0, r.settings?.fpts_decimal ?? 0,
+          r.settings?.fpts_against ?? 0, r.settings?.fpts_against_decimal ?? 0
         );
       }
-    });
-    insertRosters();
-    updateProgress(1, "Fetching players...");
+    })();
 
-    // 5. Players (large ~5MB)
-    const allPlayers = await fetchAllPlayers();
     const upsertPlayer = db.prepare(
       `INSERT OR REPLACE INTO players (player_id, first_name, last_name, full_name, position, team, age, height, weight, college, years_exp, injury_status, status, espn_id, number, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
     );
-    const insertPlayers = db.transaction(() => {
+    db.transaction(() => {
       for (const [id, p] of Object.entries(allPlayers)) {
         const raw = p as Record<string, unknown>;
         upsertPlayer.run(
-          id,
-          p.first_name,
-          p.last_name,
+          id, p.first_name, p.last_name,
           p.full_name || `${p.first_name} ${p.last_name}`,
-          p.position,
-          p.team,
-          p.age,
-          p.height,
-          p.weight,
-          p.college,
-          p.years_exp ?? 0,
-          p.injury_status,
-          p.status,
-          (raw.espn_id as number) ?? null,
-          (raw.number as number) ?? null
+          p.position, p.team, p.age, p.height, p.weight, p.college,
+          p.years_exp ?? 0, p.injury_status, p.status,
+          (raw.espn_id as number) ?? null, (raw.number as number) ?? null
         );
       }
-    });
-    insertPlayers();
+    })();
     updateProgress(5, "Fetching transactions...");
 
     // 6. Transactions (weeks 1-18)
@@ -192,16 +159,17 @@ export async function runFullSync(leagueId: string) {
       }
     );
 
-    for (let week = 1; week <= 18; week++) {
-      try {
-        const txs = await fetchTransactions(leagueId, week);
-        insertTxBatch(txs, week);
-      } catch {
-        // Some weeks may not have transactions yet
+    // Fetch all 18 weeks in parallel
+    const txResults = await Promise.allSettled(
+      Array.from({ length: 18 }, (_, i) => fetchTransactions(leagueId, i + 1))
+    );
+    for (let i = 0; i < txResults.length; i++) {
+      const result = txResults[i];
+      if (result.status === "fulfilled") {
+        insertTxBatch(result.value, i + 1);
       }
-      updateProgress(5 / 18, `Transactions week ${week}/18`);
-      await delay(50);
     }
+    updateProgress(5, "Fetching drafts...");
 
     // 7. Drafts
     const drafts = await fetchDrafts(leagueId);
@@ -318,17 +286,39 @@ export async function runFullSync(leagueId: string) {
     }
     const weightPerSeason = 30 / seasons.length;
 
-    for (const s of seasons) {
-      await syncSeasonStats(s, (fraction, label) => {
-        const partialWeight = fraction * weightPerSeason;
-        syncProgress = Math.min(
-          Math.round(((completedWeight + partialWeight) / TOTAL_WEIGHT) * 100),
-          99
-        );
-        syncPhase = label;
-      });
-      completedWeight += weightPerSeason;
+    // Skip past seasons that already have data (they never change)
+    const seasonsToFetch = seasons.filter((s) => {
+      if (s < leagueSeason) {
+        const row = db
+          .prepare("SELECT COUNT(*) as cnt FROM player_stats WHERE season = ?")
+          .get(s) as { cnt: number };
+        if (row.cnt > 0) {
+          console.log(`Skipping season ${s} stats (${row.cnt} rows already cached)`);
+          return false;
+        }
+      }
+      return true;
+    });
+
+    // Credit skipped seasons immediately
+    const skippedCount = seasons.length - seasonsToFetch.length;
+    if (skippedCount > 0) {
+      completedWeight += skippedCount * weightPerSeason;
     }
+
+    // Fetch remaining seasons in parallel
+    await Promise.all(
+      seasonsToFetch.map((s) =>
+        syncSeasonStats(s, (_fraction, label) => {
+          syncPhase = label;
+        })
+      )
+    );
+    completedWeight += seasonsToFetch.length * weightPerSeason;
+    syncProgress = Math.min(
+      Math.round((completedWeight / TOTAL_WEIGHT) * 100),
+      99
+    );
 
     // 10. Rookie data: combine results + ESPN college ID resolution + college season stats
     updateProgress(0, "Syncing combine data...");
@@ -483,7 +473,6 @@ async function syncSeasonStats(
       console.error(`Sleeper bulk stats failed for ${season} ${seasonType} week ${week}:`, e);
     }
     onProgress?.((i + 1) / weekPlan.length, `Stats ${season} week ${dbWeek}/22`);
-    await delay(50);
   }
   console.log(`Synced season ${season} from Sleeper bulk (${totalRows} rows)`);
 }
@@ -651,46 +640,52 @@ async function syncRookieData(
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
   );
 
-  let statsFetched = 0;
-  for (const row of rookiesWithEspn) {
-    if (!rookieIds.has(row.sleeper_id)) continue;
-    if (alreadyCached.has(row.espn_college_id)) continue;
+  // Filter to rookies that need fetching
+  const toFetch = rookiesWithEspn.filter(
+    (row) => rookieIds.has(row.sleeper_id) && !alreadyCached.has(row.espn_college_id)
+  );
 
-    try {
-      const seasons = await fetchCollegeSeasonStats(row.espn_college_id);
-      const insertSeasons = db.transaction(() => {
+  // Fetch college stats in parallel batches of 5
+  let statsFetched = 0;
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
+    const batch = toFetch.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(
+      batch.map(async (row) => {
+        try {
+          const seasons = await fetchCollegeSeasonStats(row.espn_college_id);
+          return { espn_college_id: row.espn_college_id, seasons };
+        } catch (e) {
+          console.error(`Failed to fetch college stats for ${row.espn_college_id}:`, e);
+          return { espn_college_id: row.espn_college_id, seasons: [] as import("./espn-college").CollegeSeasonStats[] };
+        }
+      })
+    );
+
+    // Write batch results to DB
+    for (const { espn_college_id, seasons } of batchResults) {
+      if (seasons.length === 0) continue;
+      db.transaction(() => {
         for (const s of seasons) {
           upsertCollegeSeason.run(
-            row.espn_college_id,
-            s.season,
-            s.gamesPlayed,
-            s.completions,
-            s.attempts,
-            s.passingYards,
-            s.passingTds,
-            s.interceptions,
-            s.carries,
-            s.rushingYards,
-            s.rushingTds,
-            s.receptions,
-            s.receivingYards,
-            s.receivingTds,
-            s.fumblesLost,
-            s.sacks,
-            s.tacklesTotal,
-            s.tacklesForLoss,
-            s.passDefended,
-            s.defInterceptions
+            espn_college_id, s.season, s.gamesPlayed,
+            s.completions, s.attempts, s.passingYards, s.passingTds,
+            s.interceptions, s.carries, s.rushingYards, s.rushingTds,
+            s.receptions, s.receivingYards, s.receivingTds,
+            s.fumblesLost, s.sacks, s.tacklesTotal, s.tacklesForLoss,
+            s.passDefended, s.defInterceptions
           );
         }
-      });
-      insertSeasons();
+      })();
       statsFetched++;
-    } catch (e) {
-      console.error(`Failed to fetch college stats for ${row.espn_college_id}:`, e);
     }
-    await delay(100);
-    updateProgress(3 / Math.max(rookiesWithEspn.length, 1), `College stats ${statsFetched}/${rookiesWithEspn.length}`);
+
+    updateProgress(
+      (BATCH_SIZE * 3) / Math.max(toFetch.length, 1),
+      `College stats ${statsFetched}/${toFetch.length}`
+    );
+    // Small delay between batches
+    if (i + BATCH_SIZE < toFetch.length) await delay(50);
   }
   console.log(`Fetched college season stats for ${statsFetched} rookies`);
 }
