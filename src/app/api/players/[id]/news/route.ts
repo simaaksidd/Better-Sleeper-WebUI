@@ -1,33 +1,13 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { fetchPlayerNews, type NewsItem, type PlayerNewsContext } from "@/lib/news-sources";
 
-const ESPN_NEWS_URL =
-  "https://site.api.espn.com/apis/fantasy/v2/games/ffl/news/players";
-
-// In-memory cache: espn_id → { data, timestamp }
+// In-memory cache: player_id → { news, sources, timestamp }
 const cache = new Map<
-  number,
-  { data: NewsItem[]; timestamp: number }
+  string,
+  { news: NewsItem[]; sources: string[]; timestamp: number }
 >();
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
-
-interface EspnArticle {
-  headline?: string;
-  description?: string;
-  published?: string;
-  story?: string;
-  links?: { web?: { href?: string } };
-  images?: Array<{ url?: string }>;
-}
-
-interface NewsItem {
-  headline: string;
-  description: string;
-  published: string;
-  story: string | null;
-  url: string | null;
-  image: string | null;
-}
 
 export async function GET(
   _req: Request,
@@ -36,48 +16,49 @@ export async function GET(
   const { id } = await params;
   const db = getDb();
 
-  // Look up espn_id for this player
   const player = db
-    .prepare("SELECT espn_id FROM players WHERE player_id = ?")
-    .get(id) as { espn_id: number | null } | undefined;
+    .prepare(
+      "SELECT full_name, first_name, last_name, team, espn_id, position FROM players WHERE player_id = ?"
+    )
+    .get(id) as {
+    full_name: string | null;
+    first_name: string | null;
+    last_name: string | null;
+    team: string | null;
+    espn_id: number | null;
+    position: string | null;
+  } | undefined;
 
-  if (!player?.espn_id) {
-    return NextResponse.json({ news: [], source: "no_espn_id" });
+  if (!player || !player.full_name) {
+    return NextResponse.json({ news: [], sources: [] });
   }
-
-  const espnId = player.espn_id;
 
   // Check cache
-  const cached = cache.get(espnId);
+  const cached = cache.get(id);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return NextResponse.json({ news: cached.data, source: "espn_cached" });
+    return NextResponse.json({
+      news: cached.news,
+      sources: cached.sources,
+    });
   }
 
-  try {
-    const res = await fetch(
-      `${ESPN_NEWS_URL}?limit=10&playerId=${espnId}`,
-      { next: { revalidate: 600 } }
-    );
-    if (!res.ok) {
-      return NextResponse.json({ news: [], source: "espn_error" });
-    }
+  const ctx: PlayerNewsContext = {
+    playerId: id,
+    fullName: player.full_name,
+    firstName: player.first_name || "",
+    lastName: player.last_name || "",
+    team: player.team,
+    espnId: player.espn_id,
+    position: player.position,
+  };
 
-    const data = await res.json();
-    const articles: EspnArticle[] = data.feed || data.articles || [];
+  const result = await fetchPlayerNews(ctx);
 
-    const news: NewsItem[] = articles.map((a) => ({
-      headline: a.headline || "",
-      description: a.description || "",
-      published: a.published || "",
-      story: a.story || null,
-      url: a.links?.web?.href || null,
-      image: a.images?.[0]?.url || null,
-    }));
+  cache.set(id, {
+    news: result.news,
+    sources: result.sources,
+    timestamp: Date.now(),
+  });
 
-    cache.set(espnId, { data: news, timestamp: Date.now() });
-
-    return NextResponse.json({ news, source: "espn" });
-  } catch {
-    return NextResponse.json({ news: [], source: "espn_error" });
-  }
+  return NextResponse.json(result);
 }

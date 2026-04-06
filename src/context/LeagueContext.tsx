@@ -122,17 +122,15 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
   }, [fetchLeague]);
 
   const triggerSync = useCallback(async (overrideLeagueId?: string) => {
-    const id = overrideLeagueId || leagueId;
-    if (!id) return;
     setSyncing(true);
     setSyncProgress(0);
     fetch("/api/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ leagueId: id }),
+      body: JSON.stringify(overrideLeagueId ? { leagueId: overrideLeagueId } : {}),
     }).catch(console.error);
     startPolling();
-  }, [startPolling, leagueId]);
+  }, [startPolling]);
 
   useEffect(() => {
     return () => {

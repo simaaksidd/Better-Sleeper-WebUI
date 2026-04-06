@@ -7,8 +7,9 @@ export default function WelcomeScreen() {
   const { setLeagueId, triggerSync } = useLeagueContext();
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
+  const [validating, setValidating] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = input.trim();
     if (!/^\d{10,}$/.test(trimmed)) {
@@ -16,8 +17,26 @@ export default function WelcomeScreen() {
       return;
     }
     setError("");
-    setLeagueId(trimmed);
-    triggerSync(trimmed);
+    setValidating(true);
+
+    try {
+      const res = await fetch(
+        `https://api.sleeper.app/v1/league/${trimmed}`
+      );
+      const data = await res.json();
+
+      if (!data || !data.league_id) {
+        setError("League not found. Please check the ID and try again.");
+        setValidating(false);
+        return;
+      }
+
+      setLeagueId(trimmed);
+      triggerSync(trimmed);
+    } catch {
+      setError("Could not reach Sleeper. Please try again.");
+      setValidating(false);
+    }
   };
 
   return (
@@ -53,15 +72,17 @@ export default function WelcomeScreen() {
             placeholder="e.g. 1313770370750230528"
             className="w-full px-3 py-2 bg-bg-primary border border-border rounded text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
             autoFocus
+            disabled={validating}
           />
           {error && (
             <p className="mt-2 text-sm text-red-400">{error}</p>
           )}
           <button
             type="submit"
-            className="mt-4 w-full py-2 bg-accent hover:bg-accent-hover text-white font-medium rounded transition-colors"
+            disabled={validating}
+            className="mt-4 w-full py-2 bg-accent hover:bg-accent-hover text-white font-medium rounded transition-colors disabled:opacity-50"
           >
-            Load League
+            {validating ? "Validating..." : "Load League"}
           </button>
           <p className="mt-3 text-xs text-text-muted text-center">
             Find your league ID in the Sleeper app under League Settings.

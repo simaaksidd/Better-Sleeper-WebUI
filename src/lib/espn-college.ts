@@ -366,25 +366,35 @@ export async function resolveEspnCollegeIds(
 ): Promise<Map<string, string>> {
   const results = new Map<string, string>();
 
+  // Resolve rookies that already have espn_id (no network call needed)
+  const needsSearch: typeof rookies = [];
   for (const rookie of rookies) {
-    // Strategy 1: use Sleeper's espn_id directly — ESPN IDs work across
-    // both NFL and college-football data endpoints (stats, gamelog, headshots)
     if (rookie.espn_id) {
       results.set(rookie.sleeper_id, String(rookie.espn_id));
-      continue;
+    } else {
+      needsSearch.push(rookie);
     }
+  }
 
-    // Strategy 2: search by name for players without espn_id
-    const espnId = await searchCollegeAthlete(
-      rookie.first_name,
-      rookie.last_name,
-      rookie.college
+  // Search remaining rookies in parallel batches of 5
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < needsSearch.length; i += BATCH_SIZE) {
+    const batch = needsSearch.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(
+      batch.map(async (rookie) => {
+        const espnId = await searchCollegeAthlete(
+          rookie.first_name,
+          rookie.last_name,
+          rookie.college
+        );
+        return { sleeper_id: rookie.sleeper_id, espnId };
+      })
     );
-    if (espnId) {
-      results.set(rookie.sleeper_id, espnId);
+    for (const { sleeper_id, espnId } of batchResults) {
+      if (espnId) results.set(sleeper_id, espnId);
     }
-
-    await delay(100);
+    // Small delay between batches to be respectful to ESPN API
+    if (i + BATCH_SIZE < needsSearch.length) await delay(50);
   }
 
   return results;

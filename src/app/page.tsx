@@ -20,7 +20,7 @@ interface DraftPick {
 }
 
 export default function MyTeamPage() {
-  const { myRosterId, league, leagueId, loading: leagueLoading } = useLeagueContext();
+  const { myRosterId, league, loading: leagueLoading } = useLeagueContext();
   const { rosters, loading: rostersLoading } = useRosters();
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerOnRoster | null>(
     null
@@ -29,15 +29,15 @@ export default function MyTeamPage() {
   const [pickSeasons, setPickSeasons] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!myRosterId || !leagueId) return;
-    fetch(`/api/draft-picks?leagueId=${leagueId}`)
+    if (!myRosterId) return;
+    fetch("/api/draft-picks")
       .then((r) => (r.ok ? r.json() : { picks_by_owner: {}, seasons: [] }))
       .then((data) => {
         setMyPicks(data.picks_by_owner?.[myRosterId] || []);
         setPickSeasons(data.seasons || []);
       })
       .catch(() => {});
-  }, [myRosterId, leagueId]);
+  }, [myRosterId]);
 
   const loading = leagueLoading || rostersLoading;
 
