@@ -5,6 +5,7 @@ import Image from "next/image";
 import PositionBadge from "@/components/PositionBadge";
 import { avatarUrl, playerImageUrl } from "@/lib/utils";
 import type { PlayerOnRoster, RosterWithUser } from "@/lib/types";
+import { getPickValue } from "@/hooks/useDynastyValues";
 
 export interface DraftPick {
   season: string;
@@ -38,12 +39,14 @@ export function PlayerCell({
   selectable,
   selected,
   onToggle,
+  dynastyValue,
 }: {
   player: PlayerOnRoster;
   onClick: () => void;
   selectable?: boolean;
   selected?: boolean;
   onToggle?: () => void;
+  dynastyValue?: number;
 }) {
   const [imgError, setImgError] = useState(false);
   const isDef =
@@ -112,6 +115,11 @@ export function PlayerCell({
           {player.injury_status}
         </span>
       )}
+      {dynastyValue != null && dynastyValue > 0 && (
+        <span className="text-[10px] font-mono text-text-muted shrink-0">
+          {dynastyValue.toLocaleString()}
+        </span>
+      )}
       {selectable && <RadioButton checked={!!selected} />}
     </div>
   );
@@ -144,6 +152,9 @@ export default function TeamColumn({
   selectedPickKeys,
   onTogglePlayer,
   onTogglePick,
+  dynastyValues,
+  pickDynastyValues,
+  totalTeams,
 }: {
   roster: RosterWithUser;
   onPlayerClick: (player: PlayerOnRoster) => void;
@@ -158,6 +169,9 @@ export default function TeamColumn({
   selectedPickKeys?: Set<string>;
   onTogglePlayer?: (player: PlayerOnRoster) => void;
   onTogglePick?: (pick: DraftPick) => void;
+  dynastyValues?: Map<string, number>;
+  pickDynastyValues?: Map<string, number>;
+  totalTeams?: number;
 }) {
   const [benchOpen, setBenchOpen] = useState(false);
   const avatar = avatarUrl(roster.avatar);
@@ -186,6 +200,7 @@ export default function TeamColumn({
       selectable={selectable}
       selected={selectedPlayerIds?.has(p.player_id)}
       onToggle={onTogglePlayer ? () => onTogglePlayer(p) : undefined}
+      dynastyValue={dynastyValues?.get(p.player_id)}
     />
   );
 
@@ -317,6 +332,9 @@ export default function TeamColumn({
                   {seasonPicks.map((p) => {
                     const pk = pickKey(p);
                     const isSelected = selectedPickKeys?.has(pk);
+                    const pv = pickDynastyValues
+                      ? getPickValue(pickDynastyValues, p.season, p.round, p.pick_slot, totalTeams || 0)
+                      : 0;
                     return (
                       <span
                         key={pk}
@@ -334,6 +352,11 @@ export default function TeamColumn({
                         }`}
                       >
                         {p.pick_label}
+                        {pv > 0 && (
+                          <span className={`ml-1 ${isSelected ? "text-white/70" : "text-text-muted"}`}>
+                            {pv.toLocaleString()}
+                          </span>
+                        )}
                       </span>
                     );
                   })}

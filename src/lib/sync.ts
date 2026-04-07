@@ -10,7 +10,7 @@ import {
   fetchDraftPicks,
   fetchSleeperBulkWeekStats,
 } from "./sleeper-api";
-import { fetchNflversePlayers, fetchPlayerStats, fetchCombineData } from "./nflverse";
+import { fetchNflversePlayers, fetchPlayerStats, fetchCombineData, fetchDynastyValues } from "./nflverse";
 import {
   resolveEspnCollegeIds,
   fetchCollegeSeasonStats,
@@ -22,7 +22,7 @@ let syncing = false;
 let syncProgress = 0;
 let syncPhase = "";
 let completedWeight = 0;
-const TOTAL_WEIGHT = 61;
+const TOTAL_WEIGHT = 63;
 
 export function isSyncing() {
   return syncing;
@@ -323,6 +323,10 @@ export async function runFullSync(leagueId: string) {
     // 10. Rookie data: combine results + ESPN college ID resolution + college season stats
     updateProgress(0, "Syncing combine data...");
     await syncRookieData(db, allPlayers);
+
+    // 11. Dynasty trade values from DynastyProcess
+    updateProgress(0, "Syncing dynasty values...");
+    await syncDynastyValues(db);
 
     return { status: "ok", season: leagueSeason };
   } finally {
@@ -690,7 +694,85 @@ async function syncRookieData(
   console.log(`Fetched college season stats for ${statsFetched} rookies`);
 }
 
-function normalizeName(name: string): string {
+async function syncDynastyValues(db: import("better-sqlite3").Database) {
+  try {
+    const rows = await fetchDynastyValues();
+    if (!rows || rows.length === 0) {
+      console.log("No dynasty values data available");
+      updateProgress(2, "Dynasty values unavailable");
+      return;
+    }
+
+    // Build lookup: normalizedName|team -> sleeper_id from players table
+    const allDbPlayers = db
+      .prepare("SELECT player_id, full_name, team FROM players WHERE full_name IS NOT NULL")
+      .all() as Array<{ player_id: string; full_name: string; team: string | null }>;
+
+    const nameTeamToSleeper = new Map<string, string>();
+    const nameOnlyToSleeper = new Map<string, string>();
+    for (const p of allDbPlayers) {
+      const norm = normalizeName(p.full_name);
+      if (p.team) {
+        nameTeamToSleeper.set(`${norm}|${p.team}`, p.player_id);
+      }
+      // Fallback: name-only match (first match wins)
+      if (!nameOnlyToSleeper.has(norm)) {
+        nameOnlyToSleeper.set(norm, p.player_id);
+      }
+    }
+
+    // Clear old values and insert fresh
+    db.exec("DELETE FROM dynasty_values");
+
+    const upsert = db.prepare(
+      `INSERT OR REPLACE INTO dynasty_values
+       (player, pos, team, age, ecr_1qb, ecr_2qb, ecr_pos, value_1qb, value_2qb, fp_id, scrape_date, sleeper_id, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
+    );
+
+    let matched = 0;
+    const insertAll = db.transaction(() => {
+      for (const r of rows) {
+        if (!r.player) continue;
+
+        // Try to match to a Sleeper player (picks won't match — that's fine)
+        let sleeperId: string | null = null;
+        if (r.team) {
+          const norm = normalizeName(r.player);
+          sleeperId = nameTeamToSleeper.get(`${norm}|${r.team}`) ?? null;
+          if (!sleeperId) {
+            sleeperId = nameOnlyToSleeper.get(norm) ?? null;
+          }
+        }
+        if (sleeperId) matched++;
+
+        upsert.run(
+          r.player,
+          r.pos ?? null,
+          r.team ?? null,
+          r.age ?? null,
+          r.ecr_1qb ?? null,
+          r.ecr_2qb ?? null,
+          r.ecr_pos ?? null,
+          r.value_1qb ?? 0,
+          r.value_2qb ?? 0,
+          r.fp_id ?? null,
+          r.scrape_date ?? null,
+          sleeperId
+        );
+      }
+    });
+    insertAll();
+
+    console.log(`Synced ${rows.length} dynasty values (${matched} matched to Sleeper IDs)`);
+    updateProgress(2, "Dynasty values synced");
+  } catch (e) {
+    console.error("Failed to sync dynasty values:", e);
+    updateProgress(2, "Dynasty values failed");
+  }
+}
+
+export function normalizeName(name: string): string {
   return name
     .toLowerCase()
     .replace(/\b(jr|sr|ii|iii|iv|v)\.?\b/g, "")

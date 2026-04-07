@@ -231,6 +231,25 @@ function initSchema(db: Database.Database) {
       updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
       PRIMARY KEY (espn_college_id, season, week)
     );
+
+    CREATE TABLE IF NOT EXISTS dynasty_values (
+      player TEXT NOT NULL,
+      pos TEXT,
+      team TEXT,
+      age REAL,
+      ecr_1qb REAL,
+      ecr_2qb REAL,
+      ecr_pos TEXT,
+      value_1qb INTEGER DEFAULT 0,
+      value_2qb INTEGER DEFAULT 0,
+      fp_id TEXT,
+      scrape_date TEXT,
+      sleeper_id TEXT,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      PRIMARY KEY (player, pos, team)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_dynasty_values_sleeper ON dynasty_values(sleeper_id);
   `);
 
   // Migrations for existing databases
@@ -252,5 +271,31 @@ function initSchema(db: Database.Database) {
   const idMapColNames = new Set(idMapCols.map((c) => c.name));
   if (!idMapColNames.has("espn_college_id")) {
     db.exec("ALTER TABLE player_id_map ADD COLUMN espn_college_id TEXT");
+  }
+
+  // Migration: recreate dynasty_values with (player, pos, team) primary key
+  const dvInfo = db.prepare("PRAGMA table_info(dynasty_values)").all() as Array<{ name: string; pk: number }>;
+  const dvPkCols = dvInfo.filter((c) => c.pk > 0).map((c) => c.name);
+  if (dvPkCols.length === 2 && !dvPkCols.includes("team")) {
+    db.exec("DROP TABLE dynasty_values");
+    db.exec(`
+      CREATE TABLE dynasty_values (
+        player TEXT NOT NULL,
+        pos TEXT,
+        team TEXT,
+        age REAL,
+        ecr_1qb REAL,
+        ecr_2qb REAL,
+        ecr_pos TEXT,
+        value_1qb INTEGER DEFAULT 0,
+        value_2qb INTEGER DEFAULT 0,
+        fp_id TEXT,
+        scrape_date TEXT,
+        sleeper_id TEXT,
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        PRIMARY KEY (player, pos, team)
+      );
+      CREATE INDEX IF NOT EXISTS idx_dynasty_values_sleeper ON dynasty_values(sleeper_id);
+    `);
   }
 }

@@ -9,6 +9,7 @@ import type { DraftPick } from "@/components/TeamColumn";
 import Image from "next/image";
 import { avatarUrl } from "@/lib/utils";
 import type { PlayerOnRoster, RosterWithUser } from "@/lib/types";
+import { useDynastyValues, getPickValue } from "@/hooks/useDynastyValues";
 
 interface TradeSelection {
   players: Map<string, PlayerOnRoster>; // player_id -> player
@@ -32,10 +33,16 @@ function TradeSummaryModal({
   rosters,
   selections,
   onClose,
+  dynastyValues,
+  pickDynastyValues,
+  totalTeams,
 }: {
   rosters: RosterWithUser[];
   selections: Map<number, TradeSelection>;
   onClose: () => void;
+  dynastyValues?: Map<string, number>;
+  pickDynastyValues?: Map<string, number>;
+  totalTeams?: number;
 }) {
   const rosterMap = new Map(rosters.map((r) => [r.roster_id, r]));
 
@@ -118,6 +125,33 @@ function TradeSummaryModal({
     }
     return items;
   };
+
+  // Dynasty value helpers
+  const getItemValue = (item: TradeItem): number => {
+    if (!dynastyValues && !pickDynastyValues) return 0;
+    if (item.type === "player" && item.player && dynastyValues) {
+      return dynastyValues.get(item.player.player_id) ?? 0;
+    }
+    if (item.type === "pick" && item.pick && pickDynastyValues) {
+      return getPickValue(pickDynastyValues, item.pick.season, item.pick.round, item.pick.pick_slot, totalTeams || 0);
+    }
+    return 0;
+  };
+
+  const hasValues = (dynastyValues && dynastyValues.size > 0) || (pickDynastyValues && pickDynastyValues.size > 0);
+
+  // Per-team value totals
+  const teamTotals = hasValues
+    ? teams.map(({ rosterId }) => {
+        const received = getReceivedItems(rosterId);
+        const tradedAway = allItems.filter((i) => i.sourceRosterId === rosterId);
+        const receivedTotal = received.reduce((sum, i) => sum + getItemValue(i), 0);
+        const tradedTotal = tradedAway.reduce((sum, i) => sum + getItemValue(i), 0);
+        const receivedPlayerCount = received.filter((i) => i.type === "player").length;
+        const tradedPlayerCount = tradedAway.filter((i) => i.type === "player").length;
+        return { rosterId, receivedTotal, tradedTotal, receivedPlayerCount, tradedPlayerCount };
+      })
+    : null;
 
   // Eligible destination teams for the pending item (can't send to own team)
   const pendingSourceRosterId = pendingItemKey
@@ -205,6 +239,11 @@ function TradeSummaryModal({
                             <span className="text-red-400 text-xs font-mono shrink-0">-</span>
                             <span className="truncate">{p.full_name}</span>
                             <span className="text-text-muted text-xs shrink-0">({p.position})</span>
+                            {hasValues && (
+                              <span className="text-text-muted text-[10px] font-mono shrink-0 ml-auto">
+                                {(dynastyValues?.get(p.player_id) ?? 0).toLocaleString()}
+                              </span>
+                            )}
                           </div>
                         );
                       })}
@@ -212,6 +251,9 @@ function TradeSummaryModal({
                         const key = tradeItemKey(rosterId, "pick", pickKey(pk));
                         const assigned = isAssigned(key);
                         const isPending = pendingItemKey === key;
+                        const pv = pickDynastyValues
+                          ? getPickValue(pickDynastyValues, pk.season, pk.round, pk.pick_slot, totalTeams || 0)
+                          : 0;
                         return (
                           <div
                             key={pickKey(pk)}
@@ -232,6 +274,11 @@ function TradeSummaryModal({
                           >
                             <span className="text-red-400 text-xs font-mono shrink-0">-</span>
                             <span className="font-mono truncate">{pk.season} {pk.pick_label}</span>
+                            {hasValues && pv > 0 && (
+                              <span className="text-text-muted text-[10px] font-mono shrink-0 ml-auto">
+                                {pv.toLocaleString()}
+                              </span>
+                            )}
                           </div>
                         );
                       })}
@@ -271,6 +318,11 @@ function TradeSummaryModal({
                             {item.type === "pick" && item.pick && (
                               <span className="font-mono truncate">{item.pick.season} {item.pick.pick_label}</span>
                             )}
+                            {hasValues && (
+                              <span className="text-text-muted text-[10px] font-mono shrink-0">
+                                {getItemValue(item).toLocaleString()}
+                              </span>
+                            )}
                             <span className="text-text-muted text-[10px] shrink-0 ml-auto">
                               from {sourceRoster?.display_name}
                             </span>
@@ -296,6 +348,86 @@ function TradeSummaryModal({
               </div>
             );
           })}
+
+          {/* Trade Fairness Analysis */}
+          {hasValues && teamTotals && teamTotals.length >= 2 && (() => {
+            const allAssigned = allItems.every((i) =>
+              assignments.has(tradeItemKey(i.sourceRosterId, i.type, i.id))
+            );
+            if (!allAssigned) return null;
+
+            const maxReceived = Math.max(...teamTotals.map((t) => t.receivedTotal));
+            const minReceived = Math.min(...teamTotals.map((t) => t.receivedTotal));
+            const totalValue = teamTotals.reduce((s, t) => s + t.receivedTotal, 0);
+            const diff = maxReceived - minReceived;
+            const diffPct = maxReceived > 0 ? (diff / maxReceived) * 100 : 0;
+
+            // Fairness color
+            let fairnessColor = "text-green-400";
+            let fairnessLabel = "Fair Trade";
+            if (diffPct > 25) {
+              fairnessColor = "text-red-400";
+              fairnessLabel = "Lopsided";
+            } else if (diffPct > 10) {
+              fairnessColor = "text-yellow-400";
+              fairnessLabel = "Slight Edge";
+            }
+
+            // Check for multi-player imbalance
+            const playerCounts = teamTotals.map((t) => t.receivedPlayerCount);
+            const hasPlayerImbalance = playerCounts.length === 2 && Math.abs(playerCounts[0] - playerCounts[1]) >= 1 &&
+              Math.min(...playerCounts) > 0;
+
+            return (
+              <div className="mx-4 mt-2 p-3 rounded-lg border border-border bg-bg-hover/30">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Trade Value</span>
+                  <span className={`text-xs font-bold ${fairnessColor}`}>{fairnessLabel}</span>
+                </div>
+
+                {/* Value bars */}
+                <div className="space-y-1.5 mb-2">
+                  {teamTotals.map(({ rosterId, receivedTotal }) => {
+                    const roster = rosterMap.get(rosterId);
+                    const barWidth = totalValue > 0 ? (receivedTotal / maxReceived) * 100 : 0;
+                    return (
+                      <div key={rosterId} className="flex items-center gap-2">
+                        <span className="text-[11px] text-text-secondary w-24 truncate shrink-0">
+                          {roster?.display_name}
+                        </span>
+                        <div className="flex-1 bg-bg-hover rounded-full h-3 overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{
+                              width: `${barWidth}%`,
+                              backgroundColor: receivedTotal === maxReceived && diff > 0
+                                ? diffPct > 25 ? "#f87171" : diffPct > 10 ? "#facc15" : "#4ade80"
+                                : "#4ade80",
+                            }}
+                          />
+                        </div>
+                        <span className="text-[11px] font-mono text-text-secondary w-14 text-right shrink-0">
+                          {receivedTotal.toLocaleString()}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {diff > 0 && (
+                  <p className="text-[11px] text-text-muted">
+                    Difference: {diff.toLocaleString()} ({Math.round(diffPct)}%)
+                  </p>
+                )}
+
+                {hasPlayerImbalance && (
+                  <p className="text-[11px] text-text-muted mt-1">
+                    Note: trades with different player counts typically require the side sending fewer players to overpay due to roster spot value.
+                  </p>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         <div className="p-4 border-t border-border flex justify-end gap-2">
@@ -322,6 +454,7 @@ function TradeSummaryModal({
 function TradeBuilder() {
   const { loading: leagueLoading, league } = useLeagueContext();
   const { rosters, loading: rostersLoading } = useRosters();
+  const { values: dynastyValues, pickValues: pickDynastyValues, scrapeDate } = useDynastyValues();
   const [selectedRosterIds, setSelectedRosterIds] = useState<number[]>([]);
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerOnRoster | null>(null);
   const [picksByOwner, setPicksByOwner] = useState<Record<number, DraftPick[]>>({});
@@ -479,6 +612,11 @@ function TradeBuilder() {
               Clear Teams
             </button>
           </div>
+          {scrapeDate && (
+            <p className="text-[10px] text-text-muted">
+              Values updated: {new Date(scrapeDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+            </p>
+          )}
         </div>
 
         {/* Team columns */}
@@ -507,6 +645,9 @@ function TradeBuilder() {
                   selectedPickKeys={sel ? new Set(sel.picks.keys()) : undefined}
                   onTogglePlayer={(p) => togglePlayer(r.roster_id, p)}
                   onTogglePick={(pk) => togglePick(r.roster_id, pk)}
+                  dynastyValues={dynastyValues}
+                  pickDynastyValues={pickDynastyValues}
+                  totalTeams={league?.total_rosters || 0}
                 />
               </div>
             );
@@ -581,6 +722,9 @@ function TradeBuilder() {
           rosters={rosters}
           selections={selections}
           onClose={() => setShowSummary(false)}
+          dynastyValues={dynastyValues}
+          pickDynastyValues={pickDynastyValues}
+          totalTeams={league?.total_rosters || 0}
         />
       )}
     </div>

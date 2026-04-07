@@ -1,7 +1,7 @@
 import Papa from "papaparse";
 import { NFLVERSE_BASE } from "./constants";
 
-async function fetchCsv<T>(url: string): Promise<T[] | null> {
+export async function fetchCsv<T>(url: string): Promise<T[] | null> {
   const res = await fetch(url);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`nflverse fetch error: ${res.status} ${url}`);
@@ -98,5 +98,28 @@ export interface NflverseCombineRow {
 export async function fetchCombineData(): Promise<NflverseCombineRow[] | null> {
   return fetchCsv<NflverseCombineRow>(
     `${NFLVERSE_BASE}/combine/combine.csv`
+  );
+}
+
+// ── DynastyProcess trade values ──
+
+export interface DynastyProcessRow {
+  player: string;
+  pos: string | null;
+  team: string | null;
+  age: number | null;
+  draft_year: number | null;
+  ecr_1qb: number | null;
+  ecr_2qb: number | null;
+  ecr_pos: string | null;
+  value_1qb: number | null;
+  value_2qb: number | null;
+  scrape_date: string | null;
+  fp_id: string | null;
+}
+
+export async function fetchDynastyValues(): Promise<DynastyProcessRow[] | null> {
+  return fetchCsv<DynastyProcessRow>(
+    "https://raw.githubusercontent.com/dynastyprocess/data/master/files/values.csv"
   );
 }
