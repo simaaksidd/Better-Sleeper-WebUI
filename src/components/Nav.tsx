@@ -10,6 +10,7 @@ const links = [
   { href: "/trades", label: "Trades" },
   { href: "/history", label: "History" },
   { href: "/rookies", label: "Rookies" },
+  { href: "/power-rankings", label: "Power Rankings" },
 ];
 
 export default function Nav() {

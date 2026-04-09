@@ -166,3 +166,58 @@ export interface NflState {
   season_type: string;
   display_week: number;
 }
+
+// ── Power Rankings ─────────────────────────────────────────────
+
+export interface PRPlayerEntry {
+  name: string;
+  value: number;
+  is_starter: boolean;
+  sleeper_id: string;
+}
+
+export interface PRPickEntry {
+  label: string;
+  value: number;
+  via: string | null;
+}
+
+export interface PRPositionGroup {
+  rank: number;
+  value: number;
+  avg_age: number;
+  players: PRPlayerEntry[];
+}
+
+export interface PRDraftGroup {
+  rank: number;
+  value: number;
+  picks: PRPickEntry[];
+}
+
+export interface PRTeam {
+  roster_id: number;
+  owner_name: string;
+  team_name: string;
+  avatar: string | null;
+  contender_tier: string;
+  contender_color: string;
+  contender_bg_color: string;
+  overall_rank: number;
+  overall_value: number;
+  starter_rank: number;
+  starter_value: number;
+  avg_age: number;
+  team_needs: string[];
+  positions: {
+    QB: PRPositionGroup;
+    RB: PRPositionGroup;
+    WR: PRPositionGroup;
+    TE: PRPositionGroup;
+    DRAFT: PRDraftGroup;
+  };
+}
+
+export interface PowerRankingsData {
+  teams: PRTeam[];
+}

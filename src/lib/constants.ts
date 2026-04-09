@@ -12,6 +12,16 @@ export const POSITION_COLORS: Record<string, string> = {
   TE: "#ffa502",
   K: "#a29bfe",
   DEF: "#b8860b",
+  DRAFT: "#a29bfe",
+};
+
+// Deeper, more saturated variants for chart fills (same hue families)
+export const CHART_COLORS: Record<string, string> = {
+  QB: "#e63950",
+  RB: "#2ecc71",
+  WR: "#3b82f6",
+  TE: "#f59e0b",
+  DRAFT: "#8b5cf6",
 };
 
 export const ROSTER_POSITIONS_ORDER = [

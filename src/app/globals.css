@@ -16,6 +16,7 @@
   --color-te: #ffa502;
   --color-k: #a29bfe;
   --color-def: #b8860b;
+  --color-draft: #a29bfe;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
