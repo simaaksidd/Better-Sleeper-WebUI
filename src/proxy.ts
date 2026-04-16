@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   // Skip auth check if no password is configured (local dev)
   if (!process.env.SITE_PASSWORD) {
     return NextResponse.next();
