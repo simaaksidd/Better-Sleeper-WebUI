@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { runFullSync, getSyncProgress } from "@/lib/sync";
 
+export const maxDuration = 60;
+
 export async function GET() {
   return NextResponse.json(getSyncProgress());
 }

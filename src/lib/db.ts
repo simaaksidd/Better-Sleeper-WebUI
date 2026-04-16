@@ -1,7 +1,14 @@
 import Database from "better-sqlite3";
 import path from "path";
+import fs from "fs";
 
-const DB_PATH = path.join(process.cwd(), "data", "sleeper.db");
+const DB_PATH = process.env.VERCEL
+  ? path.join("/tmp", "sleeper.db")
+  : (() => {
+      const dir = path.join(process.cwd(), "data");
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      return path.join(dir, "sleeper.db");
+    })();
 
 let _db: Database.Database | null = null;
 
