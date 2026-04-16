@@ -101,13 +101,20 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
 
   const startPolling = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
+    // Only treat "not syncing" as done after we've observed the sync actually
+    // starting. Protects against racing the POST on slow networks / cold starts.
+    let hasSeenSyncing = false;
+    const startedAt = Date.now();
     pollRef.current = setInterval(async () => {
       try {
         const res = await fetch("/api/sync");
         const data = await res.json();
         setSyncProgress((prev) => Math.max(prev, data.progress ?? 0));
 
-        if (!data.syncing) {
+        if (data.syncing) hasSeenSyncing = true;
+
+        const waitedTooLong = Date.now() - startedAt > 20_000;
+        if (!data.syncing && (hasSeenSyncing || waitedTooLong)) {
           if (pollRef.current) clearInterval(pollRef.current);
           pollRef.current = null;
           setSyncProgress(100);
