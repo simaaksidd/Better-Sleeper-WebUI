@@ -4,6 +4,7 @@ import { useState } from "react";
 import { usePowerRankings } from "@/hooks/usePowerRankings";
 import PowerRankingsChart from "@/components/power-rankings/PowerRankingsChart";
 import TeamAnalysisTable from "@/components/power-rankings/TeamAnalysisTable";
+import TierListMaker from "@/components/power-rankings/TierListMaker";
 import PlayerModal from "@/components/PlayerModal";
 import type { PlayerOnRoster } from "@/lib/types";
 
@@ -56,6 +57,7 @@ export default function PowerRankingsPage() {
 
       <PowerRankingsChart teams={data.teams} />
       <TeamAnalysisTable teams={data.teams} onPlayerClick={handlePlayerClick} />
+      <TierListMaker teams={data.teams} />
 
       {selectedPlayer && (
         <PlayerModal
