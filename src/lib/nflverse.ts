@@ -101,25 +101,3 @@ export async function fetchCombineData(): Promise<NflverseCombineRow[] | null> {
   );
 }
 
-// ── DynastyProcess trade values ──
-
-export interface DynastyProcessRow {
-  player: string;
-  pos: string | null;
-  team: string | null;
-  age: number | null;
-  draft_year: number | null;
-  ecr_1qb: number | null;
-  ecr_2qb: number | null;
-  ecr_pos: string | null;
-  value_1qb: number | null;
-  value_2qb: number | null;
-  scrape_date: string | null;
-  fp_id: string | null;
-}
-
-export async function fetchDynastyValues(): Promise<DynastyProcessRow[] | null> {
-  return fetchCsv<DynastyProcessRow>(
-    "https://raw.githubusercontent.com/dynastyprocess/data/master/files/values.csv"
-  );
-}

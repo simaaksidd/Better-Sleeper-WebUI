@@ -244,12 +244,13 @@ function initSchema(db: Database.Database) {
       pos TEXT,
       team TEXT,
       age REAL,
-      ecr_1qb REAL,
-      ecr_2qb REAL,
-      ecr_pos TEXT,
       value_1qb INTEGER DEFAULT 0,
-      value_2qb INTEGER DEFAULT 0,
-      fp_id TEXT,
+      value_1qb_tep INTEGER DEFAULT 0,
+      value_1qb_tepp INTEGER DEFAULT 0,
+      value_sf INTEGER DEFAULT 0,
+      value_sf_tep INTEGER DEFAULT 0,
+      value_sf_tepp INTEGER DEFAULT 0,
+      is_pick INTEGER DEFAULT 0,
       scrape_date TEXT,
       sleeper_id TEXT,
       updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
@@ -280,23 +281,36 @@ function initSchema(db: Database.Database) {
     db.exec("ALTER TABLE player_id_map ADD COLUMN espn_college_id TEXT");
   }
 
-  // Migration: recreate dynasty_values with (player, pos, team) primary key
+  // Migration: dynasty_values switched from DynastyProcess to KTC source.
+  // Old shape had ecr_1qb / ecr_2qb / value_2qb / fp_id / ecr_pos columns.
+  // New shape adds TEP variants + is_pick. Rebuild whenever any old column is
+  // present OR the new TEP columns are missing.
   const dvInfo = db.prepare("PRAGMA table_info(dynasty_values)").all() as Array<{ name: string; pk: number }>;
+  const dvCols = new Set(dvInfo.map((c) => c.name));
   const dvPkCols = dvInfo.filter((c) => c.pk > 0).map((c) => c.name);
-  if (dvPkCols.length === 2 && !dvPkCols.includes("team")) {
-    db.exec("DROP TABLE dynasty_values");
+  const hasLegacyShape =
+    dvCols.has("value_2qb") ||
+    dvCols.has("ecr_1qb") ||
+    dvCols.has("fp_id") ||
+    !dvCols.has("value_sf") ||
+    !dvCols.has("value_1qb_tep") ||
+    !dvCols.has("is_pick") ||
+    (dvPkCols.length === 2 && !dvPkCols.includes("team"));
+  if (hasLegacyShape) {
+    db.exec("DROP TABLE IF EXISTS dynasty_values");
     db.exec(`
       CREATE TABLE dynasty_values (
         player TEXT NOT NULL,
         pos TEXT,
         team TEXT,
         age REAL,
-        ecr_1qb REAL,
-        ecr_2qb REAL,
-        ecr_pos TEXT,
         value_1qb INTEGER DEFAULT 0,
-        value_2qb INTEGER DEFAULT 0,
-        fp_id TEXT,
+        value_1qb_tep INTEGER DEFAULT 0,
+        value_1qb_tepp INTEGER DEFAULT 0,
+        value_sf INTEGER DEFAULT 0,
+        value_sf_tep INTEGER DEFAULT 0,
+        value_sf_tepp INTEGER DEFAULT 0,
+        is_pick INTEGER DEFAULT 0,
         scrape_date TEXT,
         sleeper_id TEXT,
         updated_at INTEGER NOT NULL DEFAULT (unixepoch()),

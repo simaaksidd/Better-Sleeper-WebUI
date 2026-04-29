@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 
+export { lookupPickValue as getPickValue } from "@/lib/pick-values";
+
 interface DynastyValuesResult {
   values: Map<string, number>;
   pickValues: Map<string, number>;
@@ -40,42 +42,4 @@ export function useDynastyValues(): DynastyValuesResult {
   }, []);
 
   return { values, pickValues, scrapeDate, loading };
-}
-
-const ORDINALS: Record<number, string> = { 1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th" };
-
-/**
- * Look up a draft pick's dynasty value from the pickValues map.
- * Tries multiple key formats since DynastyProcess labels vary
- * (e.g., "2026 Mid 1st", "2026 1st", "2027 Late 2nd").
- */
-export function getPickValue(
-  pickValues: Map<string, number>,
-  season: string,
-  round: number,
-  pickSlot: number | null,
-  totalTeams: number
-): number {
-  const ordinal = ORDINALS[round] || `${round}th`;
-
-  // Determine Early/Mid/Late from pick slot
-  if (pickSlot && totalTeams > 0) {
-    const third = totalTeams / 3;
-    const tier = pickSlot <= third ? "Early" : pickSlot <= third * 2 ? "Mid" : "Late";
-    const key = `${season} ${tier} ${ordinal}`;
-    const val = pickValues.get(key);
-    if (val !== undefined) return val;
-  }
-
-  // Fallback: try "Mid" default
-  const midKey = `${season} Mid ${ordinal}`;
-  const midVal = pickValues.get(midKey);
-  if (midVal !== undefined) return midVal;
-
-  // Fallback: try without tier (e.g., "2027 1st" for future picks)
-  const plainKey = `${season} ${ordinal}`;
-  const plainVal = pickValues.get(plainKey);
-  if (plainVal !== undefined) return plainVal;
-
-  return 0;
 }

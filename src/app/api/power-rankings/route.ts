@@ -7,6 +7,7 @@ import {
   assignRanks,
   lookupPickValue,
 } from "@/lib/power-rankings";
+import { getLeagueValueConfig } from "@/lib/league-values";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -65,21 +66,19 @@ export async function GET() {
   try {
     const db = getDb();
 
-    // 1. Get league info + SF detection
+    // 1. Get league_id (the value-column selection is shared with /api/values
+    // via getLeagueValueConfig — keeps trade/team views and power rankings
+    // in lockstep).
     const leagueRow = db
-      .prepare("SELECT league_id, roster_positions FROM league LIMIT 1")
-      .get() as { league_id: string; roster_positions: string } | undefined;
+      .prepare("SELECT league_id FROM league LIMIT 1")
+      .get() as { league_id: string } | undefined;
 
     if (!leagueRow?.league_id) {
       return NextResponse.json({ teams: [] });
     }
 
     const leagueId = leagueRow.league_id;
-    const rosterPositions: string[] = JSON.parse(leagueRow.roster_positions);
-    const isSuperFlex =
-      rosterPositions.includes("SUPER_FLEX") ||
-      rosterPositions.filter((p) => p === "QB").length >= 2;
-    const valueCol = isSuperFlex ? "value_2qb" : "value_1qb";
+    const { valueColumn: valueCol } = getLeagueValueConfig(db);
 
     // 2. Dynasty values for players (keyed by sleeper_id)
     const dvRows = db
@@ -96,7 +95,7 @@ export async function GET() {
     // 3. Dynasty values for picks (keyed by label)
     const pickDvRows = db
       .prepare(
-        `SELECT player, ${valueCol} as value FROM dynasty_values WHERE pos = 'PICK'`
+        `SELECT player, ${valueCol} as value FROM dynasty_values WHERE is_pick = 1`
       )
       .all() as Array<{ player: string; value: number }>;
 
@@ -162,6 +161,7 @@ export async function GET() {
     ]);
 
     const draftOrderBySeason: Record<string, Record<string, number>> = {};
+    const completedSeasons = new Set<string>();
     let draftRounds = 4;
     for (const d of drafts) {
       if (d.settings?.player_type === 1) {
@@ -169,6 +169,7 @@ export async function GET() {
         if (d.draft_order) {
           draftOrderBySeason[d.season] = d.draft_order;
         }
+        if (d.status === "complete") completedSeasons.add(d.season);
       }
     }
 
@@ -178,9 +179,13 @@ export async function GET() {
     }
 
     const seasons = new Set<string>();
-    for (const tp of tradedPicks) seasons.add(tp.season);
+    for (const tp of tradedPicks) {
+      if (!completedSeasons.has(tp.season)) seasons.add(tp.season);
+    }
     for (const d of drafts) {
-      if (d.settings?.player_type === 1) seasons.add(d.season);
+      if (d.settings?.player_type === 1 && !completedSeasons.has(d.season)) {
+        seasons.add(d.season);
+      }
     }
 
     // Build picks grouped by current owner (roster_id)

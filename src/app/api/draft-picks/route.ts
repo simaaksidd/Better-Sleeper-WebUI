@@ -36,14 +36,20 @@ export async function GET() {
     const drafts = await fetchDrafts(leagueId);
 
     // Build a map of season -> draft_order for any rookie draft (player_type=1)
-    // that has a draft_order set
+    // that has a draft_order set. Also track seasons whose rookie draft has
+    // already completed — those picks have been resolved into actual players,
+    // so they should not appear as separate assets.
     const draftOrderBySeason: Record<string, Record<string, number>> = {};
+    const completedSeasons = new Set<string>();
     let draftRounds = 4;
     for (const d of drafts) {
       if (d.settings?.player_type === 1) {
         draftRounds = d.settings.rounds || 4;
         if (d.draft_order) {
           draftOrderBySeason[d.season] = d.draft_order;
+        }
+        if (d.status === "complete") {
+          completedSeasons.add(d.season);
         }
       }
     }
@@ -78,13 +84,14 @@ export async function GET() {
       tradedMap[`${tp.season}-${tp.round}-${tp.roster_id}`] = tp.owner_id;
     }
 
-    // Collect all seasons: from traded picks + any draft seasons
+    // Collect all seasons: from traded picks + any rookie draft seasons,
+    // skipping seasons whose rookie draft is already complete.
     const seasons = new Set<string>();
     for (const tp of tradedPicks) {
-      seasons.add(tp.season);
+      if (!completedSeasons.has(tp.season)) seasons.add(tp.season);
     }
     for (const d of drafts) {
-      if (d.settings?.player_type === 1) {
+      if (d.settings?.player_type === 1 && !completedSeasons.has(d.season)) {
         seasons.add(d.season);
       }
     }

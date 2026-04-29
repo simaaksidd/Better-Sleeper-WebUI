@@ -100,42 +100,4 @@ export function assignRanks<T>(
 
 // ── Pick Value Lookup ──────────────────────────────────────────
 
-const ORDINALS: Record<number, string> = { 1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th" };
-
-export function lookupPickValue(
-  pickValuesMap: Map<string, number>,
-  season: string,
-  round: number,
-  slot: number | null,
-  totalTeams: number
-): number {
-  const ordinal = ORDINALS[round] || `${round}th`;
-
-  // Strategy 1: exact slot match for current-year picks (e.g. "2026 Pick 2.09")
-  if (slot !== null) {
-    const exactKey = `${season} Pick ${round}.${String(slot).padStart(2, "0")}`;
-    const exactVal = pickValuesMap.get(exactKey);
-    if (exactVal !== undefined) return exactVal;
-  }
-
-  // Strategy 2: Early/Mid/Late tier match
-  if (slot !== null && totalTeams > 0) {
-    const third = totalTeams / 3;
-    const tier = slot <= third ? "Early" : slot <= third * 2 ? "Mid" : "Late";
-    const tierKey = `${season} ${tier} ${ordinal}`;
-    const tierVal = pickValuesMap.get(tierKey);
-    if (tierVal !== undefined) return tierVal;
-  }
-
-  // Strategy 3: fallback to Mid
-  const midKey = `${season} Mid ${ordinal}`;
-  const midVal = pickValuesMap.get(midKey);
-  if (midVal !== undefined) return midVal;
-
-  // Strategy 4: fallback to plain (e.g. "2027 1st")
-  const plainKey = `${season} ${ordinal}`;
-  const plainVal = pickValuesMap.get(plainKey);
-  if (plainVal !== undefined) return plainVal;
-
-  return 0;
-}
+export { lookupPickValue } from "./pick-values";

@@ -10,7 +10,8 @@ import {
   fetchDraftPicks,
   fetchSleeperBulkWeekStats,
 } from "./sleeper-api";
-import { fetchNflversePlayers, fetchPlayerStats, fetchCombineData, fetchDynastyValues } from "./nflverse";
+import { fetchNflversePlayers, fetchPlayerStats, fetchCombineData } from "./nflverse";
+import { fetchKtcRankings } from "./ktc";
 import {
   resolveEspnCollegeIds,
   fetchCollegeSeasonStats,
@@ -696,52 +697,88 @@ async function syncRookieData(
 
 async function syncDynastyValues(db: import("better-sqlite3").Database) {
   try {
-    const rows = await fetchDynastyValues();
+    const rows = await fetchKtcRankings();
     if (!rows || rows.length === 0) {
-      console.log("No dynasty values data available");
+      console.log("No KTC dynasty values data available");
       updateProgress(2, "Dynasty values unavailable");
       return;
     }
 
-    // Build lookup: normalizedName|team -> sleeper_id from players table
+    // Build multi-tier player lookup. KTC and Sleeper disagree on:
+    //   1. team codes (KCC vs KC) — normalized in src/lib/ktc.ts
+    //   2. nickname vs full first name (Chig vs Chigoziem Okonkwo)
+    //   3. duplicate normalized names (two "Kenneth Walker"s in Sleeper)
+    // Match in tiers, narrowing by position to avoid cross-position collisions.
     const allDbPlayers = db
-      .prepare("SELECT player_id, full_name, team FROM players WHERE full_name IS NOT NULL")
-      .all() as Array<{ player_id: string; full_name: string; team: string | null }>;
+      .prepare(
+        "SELECT player_id, full_name, last_name, position, team FROM players WHERE full_name IS NOT NULL"
+      )
+      .all() as Array<{
+      player_id: string;
+      full_name: string;
+      last_name: string | null;
+      position: string | null;
+      team: string | null;
+    }>;
 
-    const nameTeamToSleeper = new Map<string, string>();
-    const nameOnlyToSleeper = new Map<string, string>();
+    const nameTeamPosToSleeper = new Map<string, string>();
+    const namePosToSleeper = new Map<string, string | null>(); // null = ambiguous
+    const lastTeamPosToSleeper = new Map<string, string | null>();
     for (const p of allDbPlayers) {
       const norm = normalizeName(p.full_name);
-      if (p.team) {
-        nameTeamToSleeper.set(`${norm}|${p.team}`, p.player_id);
+      const pos = p.position ?? "";
+      if (p.team && pos) {
+        nameTeamPosToSleeper.set(`${norm}|${p.team}|${pos}`, p.player_id);
       }
-      // Fallback: name-only match (first match wins)
-      if (!nameOnlyToSleeper.has(norm)) {
-        nameOnlyToSleeper.set(norm, p.player_id);
+      if (pos) {
+        const key = `${norm}|${pos}`;
+        namePosToSleeper.set(
+          key,
+          namePosToSleeper.has(key) ? null : p.player_id
+        );
+      }
+      if (p.last_name && p.team && pos) {
+        const lastKey = `${normalizeName(p.last_name)}|${p.team}|${pos}`;
+        lastTeamPosToSleeper.set(
+          lastKey,
+          lastTeamPosToSleeper.has(lastKey) ? null : p.player_id
+        );
       }
     }
 
-    // Clear old values and insert fresh
     db.exec("DELETE FROM dynasty_values");
 
     const upsert = db.prepare(
       `INSERT OR REPLACE INTO dynasty_values
-       (player, pos, team, age, ecr_1qb, ecr_2qb, ecr_pos, value_1qb, value_2qb, fp_id, scrape_date, sleeper_id, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
+       (player, pos, team, age,
+        value_1qb, value_1qb_tep, value_1qb_tepp,
+        value_sf, value_sf_tep, value_sf_tepp,
+        is_pick, scrape_date, sleeper_id, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
     );
 
+    const scrapeDate = new Date().toISOString().slice(0, 10);
     let matched = 0;
     const insertAll = db.transaction(() => {
       for (const r of rows) {
         if (!r.player) continue;
 
-        // Try to match to a Sleeper player (picks won't match — that's fine)
         let sleeperId: string | null = null;
-        if (r.team) {
+        if (!r.is_pick && r.pos) {
           const norm = normalizeName(r.player);
-          sleeperId = nameTeamToSleeper.get(`${norm}|${r.team}`) ?? null;
+          if (r.team) {
+            sleeperId = nameTeamPosToSleeper.get(`${norm}|${r.team}|${r.pos}`) ?? null;
+          }
           if (!sleeperId) {
-            sleeperId = nameOnlyToSleeper.get(norm) ?? null;
+            sleeperId = namePosToSleeper.get(`${norm}|${r.pos}`) ?? null;
+          }
+          if (!sleeperId && r.team) {
+            // Last-name fallback: catches nickname mismatches (Chig vs Chigoziem)
+            const lastTok = norm.split(" ").slice(-1)[0];
+            if (lastTok) {
+              sleeperId =
+                lastTeamPosToSleeper.get(`${lastTok}|${r.team}|${r.pos}`) ?? null;
+            }
           }
         }
         if (sleeperId) matched++;
@@ -751,20 +788,21 @@ async function syncDynastyValues(db: import("better-sqlite3").Database) {
           r.pos ?? null,
           r.team ?? null,
           r.age ?? null,
-          r.ecr_1qb ?? null,
-          r.ecr_2qb ?? null,
-          r.ecr_pos ?? null,
-          r.value_1qb ?? 0,
-          r.value_2qb ?? 0,
-          r.fp_id ?? null,
-          r.scrape_date ?? null,
+          r.value_1qb,
+          r.value_1qb_tep,
+          r.value_1qb_tepp,
+          r.value_sf,
+          r.value_sf_tep,
+          r.value_sf_tepp,
+          r.is_pick ? 1 : 0,
+          scrapeDate,
           sleeperId
         );
       }
     });
     insertAll();
 
-    console.log(`Synced ${rows.length} dynasty values (${matched} matched to Sleeper IDs)`);
+    console.log(`Synced ${rows.length} KTC dynasty values (${matched} matched to Sleeper IDs)`);
     updateProgress(2, "Dynasty values synced");
   } catch (e) {
     console.error("Failed to sync dynasty values:", e);

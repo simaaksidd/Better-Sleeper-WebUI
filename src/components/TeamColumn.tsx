@@ -174,6 +174,8 @@ export default function TeamColumn({
   totalTeams?: number;
 }) {
   const [benchOpen, setBenchOpen] = useState(false);
+  const [startersOpen, setStartersOpen] = useState(true);
+  const [picksOpen, setPicksOpen] = useState(false);
   const avatar = avatarUrl(roster.avatar);
 
   const starterSet = new Set(roster.starters);
@@ -247,16 +249,48 @@ export default function TeamColumn({
       </div>
 
       {/* Starters */}
-      <div className="px-1 pt-1">
-        <div className="px-2 py-1">
-          <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">
-            Starters
-          </span>
+      {selectable ? (() => {
+        const selectedStarters = starters.filter(
+          (p): p is PlayerOnRoster => !!p && !!selectedPlayerIds?.has(p.player_id)
+        );
+        return (
+          <div className="px-1 pt-1">
+            <div
+              className="px-2 py-1 flex items-center justify-between cursor-pointer hover:bg-bg-hover/50 rounded transition-colors"
+              onClick={() => setStartersOpen(!startersOpen)}
+            >
+              <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">
+                Starters ({starters.filter((p) => !!p).length})
+              </span>
+              <svg
+                className={`w-3 h-3 text-text-muted transition-transform ${startersOpen ? "rotate-180" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
+            {startersOpen
+              ? starters.map((p, i) =>
+                  p ? renderPlayer(p) : <EmptySlot key={`starter-empty-${i}`} />
+                )
+              : selectedStarters.map((p) => renderPlayer(p))}
+          </div>
+        );
+      })() : (
+        <div className="px-1 pt-1">
+          <div className="px-2 py-1">
+            <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">
+              Starters
+            </span>
+          </div>
+          {starters.map((p, i) =>
+            p ? renderPlayer(p) : <EmptySlot key={`starter-empty-${i}`} />
+          )}
         </div>
-        {starters.map((p, i) =>
-          p ? renderPlayer(p) : <EmptySlot key={`starter-empty-${i}`} />
-        )}
-      </div>
+      )}
 
       {/* Bench */}
       {selectable ? (() => {
@@ -317,19 +351,35 @@ export default function TeamColumn({
       {/* Draft Picks */}
       {picks.length > 0 && (
         <div className="px-1 pt-1 pb-2">
-          <div className="px-2 py-1 border-t border-border">
+          <div
+            className="px-2 py-1 border-t border-border flex items-center justify-between cursor-pointer hover:bg-bg-hover/50 rounded transition-colors"
+            onClick={() => setPicksOpen(!picksOpen)}
+          >
             <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">
-              Draft Picks
+              Draft Picks ({picks.length})
             </span>
+            <svg
+              className={`w-3 h-3 text-text-muted transition-transform ${picksOpen ? "rotate-180" : ""}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
           </div>
           {seasons.map((season) => {
             const seasonPicks = picks.filter((p) => p.season === season);
             if (seasonPicks.length === 0) return null;
+            const visiblePicks = picksOpen
+              ? seasonPicks
+              : seasonPicks.filter((p) => selectedPickKeys?.has(pickKey(p)));
+            if (visiblePicks.length === 0) return null;
             return (
               <div key={season} className="px-2 py-1">
                 <div className="text-[10px] text-text-muted mb-1">{season}</div>
                 <div className="flex flex-wrap gap-1">
-                  {seasonPicks.map((p) => {
+                  {visiblePicks.map((p) => {
                     const pk = pickKey(p);
                     const isSelected = selectedPickKeys?.has(pk);
                     const pv = pickDynastyValues
